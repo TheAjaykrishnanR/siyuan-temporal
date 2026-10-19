@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { openTab, showMessage } from "siyuan";
 import type { App } from "siyuan";
+import { LinkifiedText } from "@/components/common/LinkifiedText";
 import {
   CustomReminder,
   ReminderPriority,
@@ -433,17 +434,17 @@ export const RemindersView: React.FC<RemindersViewProps> = ({ siyuanApp }) => {
                           <div className="flex items-center gap-2">
                             <span
                               className={cn(
-                                "font-medium",
+                                "font-medium leading-snug",
                                 rem.completed &&
                                   "line-through text-muted-foreground"
                               )}
                             >
-                              {rem.title}
+                              <LinkifiedText text={rem.title} siyuanApp={siyuanApp} />
                             </span>
                             {rem.recurrence !== "none" && (
                               <Badge
                                 variant="outline"
-                                className="gap-1 text-[10px] capitalize"
+                                className="gap-1 text-[10px] capitalize shrink-0"
                               >
                                 <Repeat className="h-2.5 w-2.5" />
                                 {rem.recurrence}
@@ -451,8 +452,8 @@ export const RemindersView: React.FC<RemindersViewProps> = ({ siyuanApp }) => {
                             )}
                           </div>
                           {rem.description && (
-                            <p className="text-xs text-muted-foreground">
-                              {rem.description}
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              <LinkifiedText text={rem.description} siyuanApp={siyuanApp} />
                             </p>
                           )}
                           {rem.linkedBlockId && (

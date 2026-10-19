@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { LinkifiedText } from "@/components/common/LinkifiedText";
 
 export const GlobalRingingOverlay: React.FC = () => {
   const { state, activeAlerts, store } = useTemporalStore();
@@ -49,9 +50,11 @@ export const GlobalRingingOverlay: React.FC = () => {
                 </Badge>
                 <Icon className="h-4 w-4 text-muted-foreground animate-bounce" />
               </div>
-              <CardTitle className="text-base mt-1">{alert.title}</CardTitle>
+              <CardTitle className="text-base mt-1">
+                <LinkifiedText text={alert.title} />
+              </CardTitle>
               <CardDescription className="text-xs">
-                {alert.subtitle}
+                <LinkifiedText text={alert.subtitle} />
               </CardDescription>
             </CardHeader>
             <CardFooter className="flex items-center gap-2 pt-2">

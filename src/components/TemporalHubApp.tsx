@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { LinkifiedText } from "@/components/common/LinkifiedText";
 
 interface TemporalHubAppProps {
   siyuanApp?: App;
@@ -170,10 +171,10 @@ export const TemporalHubApp: React.FC<TemporalHubAppProps> = ({
                           <Badge variant="default" className="uppercase text-[10px]">
                             {alert.sourceType}
                           </Badge>
-                          <span>{alert.title}</span>
+                          <LinkifiedText text={alert.title} siyuanApp={siyuanApp} />
                         </AlertTitle>
                         <AlertDescription className="text-xs text-muted-foreground">
-                          {alert.subtitle}
+                          <LinkifiedText text={alert.subtitle} siyuanApp={siyuanApp} />
                         </AlertDescription>
                       </div>
                     </div>
@@ -214,7 +215,9 @@ export const TemporalHubApp: React.FC<TemporalHubAppProps> = ({
             {navigation.section === "reminders" && (
               <RemindersView siyuanApp={siyuanApp} />
             )}
-            {navigation.section === "calendar" && <CalendarView />}
+            {navigation.section === "calendar" && (
+              <CalendarView siyuanApp={siyuanApp} />
+            )}
             {navigation.section === "settings" && <SettingsView />}
           </div>
         </main>

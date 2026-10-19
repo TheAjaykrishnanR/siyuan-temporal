@@ -39,6 +39,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { showMessage } from "siyuan";
+import type { App } from "siyuan";
+import { LinkifiedText } from "@/components/common/LinkifiedText";
 import {
   CalendarEventItem,
   GoogleIntegrationMode,
@@ -100,7 +102,11 @@ const EVENT_COLORS = [
   { name: "Rose", value: "#e11d48" },
 ];
 
-export const CalendarView: React.FC = () => {
+interface CalendarViewProps {
+  siyuanApp?: App;
+}
+
+export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
   const { state, navigation, version, store } = useTemporalStore();
 
   const [displayMode, setDisplayMode] = useState<CalendarDisplayMode>("month");
@@ -703,15 +709,16 @@ export const CalendarView: React.FC = () => {
                               <span
                                 className={cn(
                                   "font-medium",
-                                  ev.completed && "line-through"
+                                  ev.completed && "line-through text-muted-foreground"
                                 )}
                               >
-                                {ev.title}
+                                <LinkifiedText text={ev.title} siyuanApp={siyuanApp} />
                               </span>
                             </div>
                             {ev.location && (
                               <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                                <MapPin className="h-3 w-3" /> {ev.location}
+                                <MapPin className="h-3 w-3 shrink-0" />
+                                <LinkifiedText text={ev.location} siyuanApp={siyuanApp} />
                               </div>
                             )}
                           </TableCell>
@@ -862,7 +869,7 @@ export const CalendarView: React.FC = () => {
                                 ev.completed && "line-through text-muted-foreground"
                               )}
                             >
-                              {ev.title}
+                              <LinkifiedText text={ev.title} siyuanApp={siyuanApp} />
                             </h4>
                           </div>
                         </div>
@@ -933,14 +940,21 @@ export const CalendarView: React.FC = () => {
                       {ev.location && (
                         <div className="text-xs text-muted-foreground flex items-center gap-1.5 pt-0.5">
                           <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <span className="break-words leading-tight">{ev.location}</span>
+                          <LinkifiedText
+                            text={ev.location}
+                            siyuanApp={siyuanApp}
+                            className="break-words leading-tight"
+                          />
                         </div>
                       )}
 
                       {/* Description / Notes if present */}
                       {ev.description && (
                         <div className="text-xs text-muted-foreground pt-1.5 border-t border-border/60 leading-relaxed whitespace-pre-wrap break-words">
-                          {ev.description}
+                          <LinkifiedText
+                            text={ev.description}
+                            siyuanApp={siyuanApp}
+                          />
                         </div>
                       )}
                     </div>
