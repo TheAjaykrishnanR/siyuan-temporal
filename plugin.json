@@ -1,0 +1,69 @@
+{
+  "name": "siyuan-temporal",
+  "author": "Jayakuttan",
+  "url": "https://github.com/siyuan-note/siyuan-temporal",
+  "version": "1.0.0",
+  "minAppVersion": "3.1.0",
+  "kernels": [
+    "windows",
+    "linux",
+    "darwin",
+    "ios",
+    "android",
+    "harmony",
+    "docker",
+    "all"
+  ],
+  "backends": [
+    "windows",
+    "linux",
+    "darwin",
+    "ios",
+    "android",
+    "harmony",
+    "docker",
+    "all"
+  ],
+  "frontends": [
+    "desktop",
+    "mobile",
+    "browser-desktop",
+    "browser-mobile",
+    "desktop-window",
+    "all"
+  ],
+  "disabledInPublish": false,
+  "displayName": {
+    "default": "Temporal — Clock, Reminders & Calendar",
+    "zh-CN": "Temporal 时间中枢 — 时钟、提醒与日历"
+  },
+  "description": {
+    "default": "All-in-one time suite for SiYuan built with shadcn/ui: World Clock, Timer, Stopwatch, Alarms with real synthesized & custom sounds, Custom Reminders for any date/time, and Google Calendar sync.",
+    "zh-CN": "基于 shadcn/ui 构建的思源全能时间管理插件：世界时钟、计时器、秒表、真音效闹钟、任意日期自定义提醒及 Google 日历深度同步。"
+  },
+  "readme": {
+    "default": "README.md",
+    "zh-CN": "README.zh-CN.md"
+  },
+  "icon": "icon.png",
+  "preview": "preview.png",
+  "funding": {
+    "openCollective": "",
+    "patreon": "",
+    "github": "",
+    "custom": []
+  },
+  "keywords": [
+    "clock",
+    "timer",
+    "stopwatch",
+    "alarm",
+    "reminder",
+    "calendar",
+    "google calendar",
+    "temporal",
+    "时钟",
+    "提醒",
+    "日历"
+  ]
+}

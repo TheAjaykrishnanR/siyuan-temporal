@@ -1,0 +1,9 @@
+{
+  "openTemporalHub": "打开 Temporal 时间中枢",
+  "openClock": "打开时钟、计时器与闹钟",
+  "openReminders": "打开自定义提醒",
+  "openCalendar": "打开日历与 Google 同步",
+  "openSettings": "Temporal 设置",
+  "quickReminder": "新建自定义提醒",
+  "tabTitle": "Temporal 时间中枢"
+}
