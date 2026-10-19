@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   addDays,
   addMonths,
@@ -38,6 +38,8 @@ import {
   Link2,
   Lock,
   MapPin,
+  PanelRightClose,
+  PanelRightOpen,
   Paperclip,
   Pencil,
   Phone,
@@ -139,6 +141,72 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
   const { state, navigation, version, store } = useTemporalStore();
 
   const [displayMode, setDisplayMode] = useState<CalendarDisplayMode>("month");
+  const [showInspector, setShowInspector] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(1200);
+  const userExplicitToggledRef = useRef<boolean>(false);
+  const prevWidthRef = useRef<number | null>(null);
+
+  // Auto-hide threshold: below 980px, side-by-side squishes calendar & inspector
+  const SIDE_BY_SIDE_THRESHOLD = 980;
+  const isWideContainer = containerWidth >= SIDE_BY_SIDE_THRESHOLD;
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const updateWidth = (width: number) => {
+      if (width <= 0) return;
+      setContainerWidth(width);
+      const prevWidth = prevWidthRef.current;
+      prevWidthRef.current = width;
+
+      if (prevWidth !== null) {
+        // When manually resized smaller past threshold -> automatically hide inspector to prevent squishing
+        if (prevWidth >= SIDE_BY_SIDE_THRESHOLD && width < SIDE_BY_SIDE_THRESHOLD) {
+          setShowInspector(false);
+        }
+        // When resized larger past threshold -> restore inspector if user didn't explicitly close it
+        else if (prevWidth < SIDE_BY_SIDE_THRESHOLD && width >= SIDE_BY_SIDE_THRESHOLD) {
+          if (!userExplicitToggledRef.current) {
+            setShowInspector(true);
+          }
+        }
+      } else {
+        // Initial check on mount
+        if (width < SIDE_BY_SIDE_THRESHOLD) {
+          setShowInspector(false);
+        }
+      }
+    };
+
+    const initialWidth = Math.round(containerRef.current.clientWidth);
+    if (initialWidth > 0) {
+      updateWidth(initialWidth);
+    }
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = Math.round(entry.contentRect.width);
+        updateWidth(width);
+      }
+    });
+
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleToggleInspector = () => {
+    setShowInspector((prev) => {
+      const next = !prev;
+      if (isWideContainer && !next) {
+        userExplicitToggledRef.current = true;
+      } else if (next) {
+        userExplicitToggledRef.current = false;
+      }
+      return next;
+    });
+  };
+
   const [detailsEvent, setDetailsEvent] = useState<CalendarEventItem | null>(null);
   const [attendeeFilter, setAttendeeFilter] = useState<
     "all" | "accepted" | "declined" | "tentative" | "needsAction"
@@ -485,9 +553,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
   );
 
   return (
-    <div className="space-y-6">
+    <div ref={containerRef} className="space-y-6 min-w-0 max-w-full">
       {/* Top Toolbar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div
+        className={cn(
+          "flex justify-between gap-4",
+          isWideContainer ? "flex-row items-center" : "flex-col"
+        )}
+      >
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1">
             <Button
@@ -593,12 +666,37 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
             <Plus className="h-4 w-4" />
             New Item
           </Button>
+
+          <Button
+            variant={showInspector ? "secondary" : "outline"}
+            size="icon"
+            onClick={handleToggleInspector}
+            className="h-8 w-8 shrink-0"
+            title={showInspector ? "Hide side panel" : "Show side panel"}
+            aria-label={showInspector ? "Hide side panel" : "Show side panel"}
+          >
+            {showInspector ? (
+              <PanelRightClose className="h-4 w-4" />
+            ) : (
+              <PanelRightOpen className="h-4 w-4" />
+            )}
+          </Button>
         </div>
       </div>
 
       {/* Main Calendar Grid + Inspector */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <Card className="xl:col-span-8 overflow-hidden">
+      <div
+        className={cn(
+          "grid gap-6 min-w-0 max-w-full",
+          isWideContainer && showInspector ? "grid-cols-12" : "grid-cols-1"
+        )}
+      >
+        <Card
+          className={cn(
+            "overflow-hidden min-w-0 shadow-sm",
+            isWideContainer && showInspector ? "col-span-7 xl:col-span-8" : "col-span-12"
+          )}
+        >
           {displayMode === "month" && (
             <CardContent className="p-0">
               <div className="grid grid-cols-7 border-b bg-muted/40">
@@ -962,429 +1060,421 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
         </Card>
 
         {/* Right Day Inspector & Google Calendars */}
-        <div className="xl:col-span-4 space-y-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <div>
-                <CardTitle className="text-base">
-                  {format(selectedDate, "EEEE, MMM d")}
-                </CardTitle>
-                <CardDescription>
-                  {selectedDayEvents.length} scheduled item
-                  {selectedDayEvents.length === 1 ? "" : "s"}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-1.5">
+        {showInspector && (
+          <div
+            className={cn(
+              "space-y-6 min-w-0 max-w-full",
+              isWideContainer ? "col-span-5 xl:col-span-4" : "col-span-12"
+            )}
+          >
+            <Card className="min-w-0 max-w-full overflow-hidden shadow-sm">
+              <CardHeader className="flex flex-wrap items-center justify-between gap-2 space-y-0 pb-3 min-w-0">
+                <div className="min-w-0">
+                  <CardTitle className="text-base truncate">
+                    {format(selectedDate, "EEEE, MMM d")}
+                  </CardTitle>
+                  <CardDescription className="truncate">
+                    {selectedDayEvents.length} scheduled item
+                    {selectedDayEvents.length === 1 ? "" : "s"}
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1"
+                    onClick={() => openAddEventForDate(selectedDate, "reminder")}
+                    title="Add Reminder on this date"
+                  >
+                    <Bell className="h-3.5 w-3.5" />
+                    <span>+ Reminder</span>
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1"
+                    onClick={() => openAddEventForDate(selectedDate, "event")}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>+ Event</span>
+                  </Button>
+                </div>
+              </CardHeader>
+
+              <CardContent className="min-w-0">
+                {selectedDayEvents.length === 0 ? (
+                  <div className="py-8 text-center border border-dashed rounded-md">
+                    <CalendarDays className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">
+                      No events or reminders on {format(selectedDate, "MMM d")}.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-y-auto overflow-x-hidden max-h-[480px] space-y-2.5 pr-1 min-w-0 max-w-full">
+                    {selectedDayEvents.map((ev) => (
+                      <div
+                        key={ev.id}
+                        className={cn(
+                          "p-3 rounded-xl border bg-card/60 backdrop-blur-sm space-y-2 transition-all hover:bg-card/90 shadow-xs min-w-0 max-w-full overflow-hidden",
+                          ev.completed && "opacity-60 bg-muted/30"
+                        )}
+                      >
+                        {/* Top row: Checkbox/Dot + Full Title + Action Buttons */}
+                        <div className="flex items-start justify-between gap-2 min-w-0">
+                          <div className="flex items-start gap-2 min-w-0 flex-1">
+                            {ev.source === "reminder" && ev.reminderId ? (
+                              <div className="pt-0.5 shrink-0">
+                                <Checkbox
+                                  checked={Boolean(ev.completed)}
+                                  onCheckedChange={(checked) =>
+                                    store.completeReminder(
+                                      ev.reminderId!,
+                                      Boolean(checked)
+                                    )
+                                  }
+                                />
+                              </div>
+                            ) : (
+                              <span
+                                className="h-2.5 w-2.5 rounded-full shrink-0 mt-1.5"
+                                style={{ backgroundColor: ev.color || "#2563eb" }}
+                              />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <h4
+                                className={cn(
+                                  "text-sm font-semibold text-foreground leading-snug break-words",
+                                  ev.completed && "line-through text-muted-foreground"
+                                )}
+                              >
+                                <LinkifiedText text={ev.title} siyuanApp={siyuanApp} />
+                              </h4>
+                            </div>
+                          </div>
+
+                          {/* Actions: compact, contained icon buttons that wrap cleanly inside card */}
+                          <div className="flex items-center gap-0.5 shrink-0 flex-wrap justify-end">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                              onClick={() => setDetailsEvent(ev)}
+                              title="View All Event Details"
+                            >
+                              <Info className="h-3.5 w-3.5" />
+                            </Button>
+                            {ev.htmlLink && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                title="Open in Google Calendar"
+                                asChild
+                              >
+                                <a
+                                  href={ev.htmlLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </a>
+                              </Button>
+                            )}
+                            {ev.source === "reminder" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                onClick={() => store.setSection("reminders")}
+                                title="Open in Reminders view"
+                              >
+                                <Bell className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {ev.source === "local" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                onClick={() => openEditLocalEvent(ev)}
+                                title="Edit Event"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              onClick={() => store.deleteCalendarEvent(ev.id)}
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Time, Recurrence & Calendar badges */}
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground min-w-0 max-w-full">
+                          <span className="inline-flex items-center gap-1.5 font-mono bg-muted/60 px-2 py-0.5 rounded-md text-[11px]">
+                            <Clock className="h-3 w-3 text-primary shrink-0" />
+                            {ev.allDay
+                              ? "All Day"
+                              : ev.source === "reminder"
+                              ? format(new Date(ev.startISO), "HH:mm")
+                              : `${format(new Date(ev.startISO), "HH:mm")}${ev.endISO ? ` – ${format(new Date(ev.endISO), "HH:mm")}` : ""}`}
+                            {!ev.allDay && ev.endISO && (
+                              <span className="opacity-70 ml-0.5">
+                                ({formatDurationString(ev.startISO, ev.endISO, ev.allDay)})
+                              </span>
+                            )}
+                          </span>
+
+                          {ev.recurrence && ev.recurrence !== "none" && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] gap-1 px-1.5 py-0.5 capitalize"
+                            >
+                              <Repeat className="h-2.5 w-2.5 text-primary" />
+                              {ev.recurrence}
+                            </Badge>
+                          )}
+
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
+                            {ev.calendarName || ev.source}
+                          </Badge>
+
+                          {ev.status && ev.status !== "confirmed" && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] px-1.5 py-0.5 capitalize"
+                            >
+                              {ev.status}
+                            </Badge>
+                          )}
+
+                          {ev.transparency && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 capitalize">
+                              <Briefcase className="h-2.5 w-2.5 mr-1 opacity-70" />
+                              {ev.transparency === "opaque" ? "Busy" : "Free"}
+                            </Badge>
+                          )}
+
+                          {ev.visibility && ev.visibility !== "default" && ev.visibility !== "public" && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 capitalize">
+                              <Lock className="h-2.5 w-2.5 mr-1 opacity-70" />
+                              {ev.visibility}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Video Meeting Callout if present */}
+                        {ev.meetLink && (
+                          <div className="pt-0.5 space-y-1 min-w-0 max-w-full">
+                            <a
+                              href={ev.meetLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center justify-between gap-2 p-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/30 text-xs text-foreground transition-all group min-w-0 max-w-full overflow-hidden"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <div className="h-6 w-6 rounded-md bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                                  <Video className="h-3.5 w-3.5" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold text-emerald-700 dark:text-emerald-300 leading-tight truncate">
+                                    Join Video Meeting
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground font-mono truncate">
+                                    {ev.meetLink}
+                                  </div>
+                                </div>
+                              </div>
+                              <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1 group-hover:translate-x-0.5 transition-transform shrink-0 ml-1">
+                                Join <ExternalLink className="h-3 w-3" />
+                              </span>
+                            </a>
+
+                            {(ev.conferenceDetails?.phoneUri || ev.conferenceDetails?.phonePin) && (
+                              <div className="text-[11px] text-muted-foreground px-1.5 flex items-center gap-1.5 min-w-0 max-w-full truncate">
+                                <Phone className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <span className="truncate">
+                                  Dial-in: {ev.conferenceDetails.phoneUri || ""}{" "}
+                                  {ev.conferenceDetails.phonePin ? `• PIN: ${ev.conferenceDetails.phonePin}` : ""}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Attachments & Files if present */}
+                        {ev.attachments && ev.attachments.length > 0 && (
+                          <div className="pt-0.5 space-y-1 min-w-0 max-w-full">
+                            <div className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+                              <Paperclip className="h-3 w-3 text-primary shrink-0" />
+                              <span>Attachments ({ev.attachments.length})</span>
+                            </div>
+                            <div className="flex flex-col gap-1 min-w-0 max-w-full">
+                              {ev.attachments.map((att, idx) => (
+                                <a
+                                  key={idx}
+                                  href={att.fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center justify-between gap-2 p-1.5 rounded-md bg-muted/40 hover:bg-muted text-xs transition-colors group min-w-0 max-w-full overflow-hidden"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                    <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
+                                    <span className="truncate font-medium flex-1">{att.title}</span>
+                                  </div>
+                                  <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-foreground shrink-0 ml-1" />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Organizer / Host if present */}
+                        {ev.organizer && (
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 pt-0.5 min-w-0 max-w-full truncate">
+                            <User className="h-3 w-3 text-primary shrink-0" />
+                            <span className="truncate">
+                              Host: {ev.organizer.displayName || ev.organizer.email}
+                              {ev.organizer.self ? " (You)" : ""}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Attendees preview if present */}
+                        {ev.attendees && ev.attendees.length > 0 && (
+                          <button
+                            type="button"
+                            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1.5 pt-0.5 text-left transition-colors cursor-pointer min-w-0 max-w-full truncate"
+                            onClick={() => setDetailsEvent(ev)}
+                          >
+                            <Users className="h-3 w-3 text-primary shrink-0" />
+                            <span className="truncate">
+                              {ev.attendees.length} Attendees
+                              {(() => {
+                                const acc = ev.attendees.filter((a) => a.responseStatus === "accepted").length;
+                                const dec = ev.attendees.filter((a) => a.responseStatus === "declined").length;
+                                const parts: string[] = [];
+                                if (acc) parts.push(`${acc} accepted`);
+                                if (dec) parts.push(`${dec} declined`);
+                                return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+                              })()}
+                              {" • View roster"}
+                            </span>
+                          </button>
+                        )}
+
+                        {/* Location if present */}
+                        {ev.location && (
+                          <div className="text-xs text-muted-foreground flex items-center justify-between gap-1.5 pt-0.5 min-w-0 max-w-full">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
+                              <span className="truncate flex-1">
+                                <LinkifiedText
+                                  text={ev.location}
+                                  siyuanApp={siyuanApp}
+                                  className="truncate leading-tight"
+                                />
+                              </span>
+                            </div>
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ev.location)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[10px] text-primary hover:underline shrink-0 ml-1"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Open in Google Maps"
+                            >
+                              Maps
+                            </a>
+                          </div>
+                        )}
+
+                        {/* Description / Notes if present */}
+                        {ev.description && (
+                          <div className="text-xs text-muted-foreground pt-1.5 border-t border-border/60 leading-relaxed whitespace-pre-wrap break-words max-h-40 overflow-y-auto overflow-x-hidden min-w-0 max-w-full">
+                            <LinkifiedText
+                              text={ev.description}
+                              siyuanApp={siyuanApp}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 max-w-full overflow-hidden shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 min-w-0">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm truncate">Google Calendars</CardTitle>
+                  <CardDescription className="text-xs truncate">
+                    Connected personal feeds
+                  </CardDescription>
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => openAddEventForDate(selectedDate, "reminder")}
-                  title="Add Reminder on this date"
+                  className="h-7 px-2 text-xs shrink-0 ml-2"
+                  onClick={() => setGcalDialogOpen(true)}
                 >
-                  <Bell className="h-3.5 w-3.5" />
-                  + Reminder
+                  Manage
                 </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => openAddEventForDate(selectedDate, "event")}
-                >
-                  <Plus className="h-3.5 w-3.5" /> Event
-                </Button>
-              </div>
-            </CardHeader>
-
-            <CardContent>
-              {selectedDayEvents.length === 0 ? (
-                <div className="py-8 text-center border border-dashed rounded-md">
-                  <CalendarDays className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+              </CardHeader>
+              <CardContent className="space-y-2 max-h-56 overflow-y-auto overflow-x-hidden pr-1 min-w-0">
+                {state.googleAccounts.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    No events or reminders on {format(selectedDate, "MMM d")}.
+                    No Google Calendar connected yet.
                   </p>
-                </div>
-              ) : (
-                <div className="overflow-y-auto max-h-[460px] space-y-3 pr-2">
-                  {selectedDayEvents.map((ev) => (
+                ) : (
+                  state.googleAccounts.map((acc) => (
                     <div
-                      key={ev.id}
-                      className={cn(
-                        "p-3.5 rounded-xl border bg-card/60 backdrop-blur-sm space-y-2.5 transition-all hover:bg-card/90 shadow-xs",
-                        ev.completed && "opacity-60 bg-muted/30"
-                      )}
+                      key={acc.id}
+                      className="flex items-center justify-between py-1.5 px-2 rounded-md border text-xs min-w-0 max-w-full overflow-hidden"
                     >
-                      {/* Top row: Checkbox/Dot + Full Title + Action Buttons */}
-                      <div className="flex items-start justify-between gap-2.5">
-                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                          {ev.source === "reminder" && ev.reminderId ? (
-                            <div className="pt-0.5 shrink-0">
-                              <Checkbox
-                                checked={Boolean(ev.completed)}
-                                onCheckedChange={(checked) =>
-                                  store.completeReminder(
-                                    ev.reminderId!,
-                                    Boolean(checked)
-                                  )
-                                }
-                              />
-                            </div>
-                          ) : (
-                            <span
-                              className="h-3 w-3 rounded-full shrink-0 mt-1"
-                              style={{ backgroundColor: ev.color || "#2563eb" }}
-                            />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <h4
-                              className={cn(
-                                "text-sm font-semibold text-foreground leading-snug break-words",
-                                ev.completed && "line-through text-muted-foreground"
-                              )}
-                            >
-                              <LinkifiedText text={ev.title} siyuanApp={siyuanApp} />
-                            </h4>
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                            onClick={() => setDetailsEvent(ev)}
-                            title="View All Event Details"
-                          >
-                            <Info className="h-3.5 w-3.5" />
-                          </Button>
-                          {ev.meetLink && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs gap-1 font-semibold text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-600 hover:text-white"
-                              title="Join Video Meeting"
-                              asChild
-                            >
-                              <a
-                                href={ev.meetLink}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <Video className="h-3.5 w-3.5" />
-                                Join
-                              </a>
-                            </Button>
-                          )}
-                          {ev.htmlLink && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              title="Open in Google Calendar"
-                              asChild
-                            >
-                              <a
-                                href={ev.htmlLink}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                              </a>
-                            </Button>
-                          )}
-                          {ev.source === "reminder" && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => store.setSection("reminders")}
-                              title="Open in Reminders view"
-                            >
-                              Open
-                            </Button>
-                          )}
-                          {ev.source === "local" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              onClick={() => openEditLocalEvent(ev)}
-                              title="Edit Event"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => store.deleteCalendarEvent(ev.id)}
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Time, Recurrence & Calendar badges */}
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1.5 font-mono bg-muted/60 px-2 py-0.5 rounded-md text-[11px]">
-                          <Clock className="h-3 w-3 text-primary shrink-0" />
-                          {ev.allDay
-                            ? "All Day"
-                            : ev.source === "reminder"
-                            ? format(new Date(ev.startISO), "HH:mm")
-                            : `${format(new Date(ev.startISO), "HH:mm")}${ev.endISO ? ` – ${format(new Date(ev.endISO), "HH:mm")}` : ""}`}
-                          {!ev.allDay && ev.endISO && (
-                            <span className="opacity-70 ml-0.5">
-                              ({formatDurationString(ev.startISO, ev.endISO, ev.allDay)})
-                            </span>
-                          )}
-                        </span>
-
-                        {ev.recurrence && ev.recurrence !== "none" && (
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] gap-1 px-1.5 py-0.5 capitalize"
-                          >
-                            <Repeat className="h-2.5 w-2.5 text-primary" />
-                            {ev.recurrence}
-                          </Badge>
-                        )}
-
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
-                          {ev.calendarName || ev.source}
-                        </Badge>
-
-                        {ev.status && ev.status !== "confirmed" && (
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] px-1.5 py-0.5 capitalize"
-                          >
-                            {ev.status}
-                          </Badge>
-                        )}
-
-                        {ev.transparency && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 capitalize">
-                            <Briefcase className="h-2.5 w-2.5 mr-1 opacity-70" />
-                            {ev.transparency === "opaque" ? "Busy" : "Free"}
-                          </Badge>
-                        )}
-
-                        {ev.visibility && ev.visibility !== "default" && ev.visibility !== "public" && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 capitalize">
-                            <Lock className="h-2.5 w-2.5 mr-1 opacity-70" />
-                            {ev.visibility}
-                          </Badge>
-                        )}
-                      </div>
-
-                      {/* Video Meeting Callout if present */}
-                      {ev.meetLink && (
-                        <div className="pt-1 space-y-1">
-                          <a
-                            href={ev.meetLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center justify-between gap-2 p-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/30 text-xs text-foreground transition-all group"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className="h-6 w-6 rounded-md bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                                <Video className="h-3.5 w-3.5" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="font-semibold text-emerald-700 dark:text-emerald-300 leading-tight">
-                                  Join Video Meeting
-                                </div>
-                                <div className="text-[11px] text-muted-foreground font-mono truncate">
-                                  {ev.meetLink}
-                                </div>
-                              </div>
-                            </div>
-                            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1 group-hover:translate-x-0.5 transition-transform shrink-0">
-                              Join <ExternalLink className="h-3 w-3" />
-                            </span>
-                          </a>
-
-                          {(ev.conferenceDetails?.phoneUri || ev.conferenceDetails?.phonePin) && (
-                            <div className="text-[11px] text-muted-foreground px-2 flex items-center gap-1.5">
-                              <Phone className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                              <span>
-                                Dial-in: {ev.conferenceDetails.phoneUri || ""}{" "}
-                                {ev.conferenceDetails.phonePin ? `• PIN: ${ev.conferenceDetails.phonePin}` : ""}
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: acc.color }}
+                        />
+                        <div className="truncate flex-1">
+                          <div className="font-medium truncate">{acc.name}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {acc.lastSyncError ? (
+                              <span className="text-destructive truncate">
+                                {acc.lastSyncError}
                               </span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Attachments & Files if present */}
-                      {ev.attachments && ev.attachments.length > 0 && (
-                        <div className="pt-1 space-y-1">
-                          <div className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
-                            <Paperclip className="h-3 w-3 text-primary shrink-0" />
-                            <span>Attachments ({ev.attachments.length})</span>
+                            ) : acc.lastSyncedAt ? (
+                              `Synced ${format(new Date(acc.lastSyncedAt), "HH:mm")}`
+                            ) : (
+                              "Ready"
+                            )}
                           </div>
-                          <div className="flex flex-col gap-1">
-                            {ev.attachments.map((att, idx) => (
-                              <a
-                                key={idx}
-                                href={att.fileUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center justify-between gap-2 p-1.5 rounded-md bg-muted/40 hover:bg-muted text-xs transition-colors group"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <FileText className="h-3 w-3 text-primary shrink-0" />
-                                  <span className="truncate font-medium">{att.title}</span>
-                                </div>
-                                <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-foreground shrink-0" />
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Organizer / Host if present */}
-                      {ev.organizer && (
-                        <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 pt-0.5">
-                          <User className="h-3 w-3 text-primary shrink-0" />
-                          <span className="truncate">
-                            Host: {ev.organizer.displayName || ev.organizer.email}
-                            {ev.organizer.self ? " (You)" : ""}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Attendees preview if present */}
-                      {ev.attendees && ev.attendees.length > 0 && (
-                        <button
-                          type="button"
-                          className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1.5 pt-0.5 text-left transition-colors cursor-pointer"
-                          onClick={() => setDetailsEvent(ev)}
-                        >
-                          <Users className="h-3 w-3 text-primary shrink-0" />
-                          <span className="truncate">
-                            {ev.attendees.length} Attendees
-                            {(() => {
-                              const acc = ev.attendees.filter((a) => a.responseStatus === "accepted").length;
-                              const dec = ev.attendees.filter((a) => a.responseStatus === "declined").length;
-                              const parts: string[] = [];
-                              if (acc) parts.push(`${acc} accepted`);
-                              if (dec) parts.push(`${dec} declined`);
-                              return parts.length > 0 ? ` (${parts.join(", ")})` : "";
-                            })()}
-                            {" • View roster"}
-                          </span>
-                        </button>
-                      )}
-
-                      {/* Location if present */}
-                      {ev.location && (
-                        <div className="text-xs text-muted-foreground flex items-center justify-between gap-1.5 pt-0.5">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-                            <LinkifiedText
-                              text={ev.location}
-                              siyuanApp={siyuanApp}
-                              className="break-words leading-tight"
-                            />
-                          </div>
-                          <a
-                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ev.location)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[10px] text-primary hover:underline shrink-0"
-                            onClick={(e) => e.stopPropagation()}
-                            title="Open in Google Maps"
-                          >
-                            Maps
-                          </a>
-                        </div>
-                      )}
-
-                      {/* Description / Notes if present */}
-                      {ev.description && (
-                        <div className="text-xs text-muted-foreground pt-1.5 border-t border-border/60 leading-relaxed whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-                          <LinkifiedText
-                            text={ev.description}
-                            siyuanApp={siyuanApp}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <div>
-                <CardTitle className="text-sm">Google Calendars</CardTitle>
-                <CardDescription className="text-xs">
-                  Connected personal feeds
-                </CardDescription>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => setGcalDialogOpen(true)}
-              >
-                Manage
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-2 max-h-56 overflow-y-auto pr-1">
-              {state.googleAccounts.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  No Google Calendar connected yet.
-                </p>
-              ) : (
-                state.googleAccounts.map((acc) => (
-                  <div
-                    key={acc.id}
-                    className="flex items-center justify-between py-1.5 px-2 rounded-md border text-xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: acc.color }}
-                      />
-                      <div className="truncate">
-                        <div className="font-medium truncate">{acc.name}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {acc.lastSyncError ? (
-                            <span className="text-destructive">
-                              {acc.lastSyncError}
-                            </span>
-                          ) : acc.lastSyncedAt ? (
-                            `Synced ${format(new Date(acc.lastSyncedAt), "HH:mm")}`
-                          ) : (
-                            "Ready"
-                          )}
                         </div>
                       </div>
+                      <Switch
+                        checked={acc.enabled}
+                        className="shrink-0 ml-2"
+                        onCheckedChange={(checked) =>
+                          store.updateGoogleAccount(acc.id, { enabled: checked })
+                        }
+                      />
                     </div>
-                    <Switch
-                      checked={acc.enabled}
-                      onCheckedChange={(checked) =>
-                        store.updateGoogleAccount(acc.id, { enabled: checked })
-                      }
-                    />
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
       {/* ==================== DIALOG: NEW / EDIT CALENDAR ITEM ==================== */}
