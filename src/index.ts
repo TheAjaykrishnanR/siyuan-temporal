@@ -26,7 +26,44 @@ export default class SiyuanTemporalPlugin extends Plugin {
 
     this.addIcons(`
       <symbol id="iconTemporal" viewBox="0 0 24 24">
-        <path fill="currentColor" d="M12 20a7 7 0 1 0 0-14a7 7 0 0 0 0 14m0 2a9 9 0 1 1 0-18a9 9 0 0 1 0 18m.5-13v3.79l2.85 2.85l-1.41 1.41L10.5 13.6V9zM5.6 2.86L7 4.27L3.82 7.45L2.41 6.04zM18.4 2.86l3.19 3.18l-1.41 1.41L17 4.27z"/>
+        <circle cx="12" cy="12" r="10" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <polyline points="12 6 12 12 16 14" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+      </symbol>
+      <symbol id="iconTemporalAlarm" viewBox="0 0 24 24">
+        <circle cx="12" cy="13" r="8" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M12 9v4l2 2" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M5 3 2 6" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="m22 6-3-3" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M6.38 18.7 4 21" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M17.64 18.67 20 21" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+      </symbol>
+      <symbol id="iconTemporalTimer" viewBox="0 0 24 24">
+        <line x1="10" x2="14" y1="2" y2="2" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <line x1="12" x2="15" y1="14" y2="11" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <circle cx="12" cy="14" r="8" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+      </symbol>
+      <symbol id="iconTemporalStopwatch" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <polyline points="12 6 12 12 16 14" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+      </symbol>
+      <symbol id="iconTemporalGlobe" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M2 12h20" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+      </symbol>
+      <symbol id="iconTemporalBell" viewBox="0 0 24 24">
+        <path d="M10.268 21a2 2 0 0 0 3.464 0" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+      </symbol>
+      <symbol id="iconTemporalCalendar" viewBox="0 0 24 24">
+        <path d="M8 2v4" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M16 2v4" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <rect width="18" height="18" x="3" y="4" rx="2" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <path d="M3 10h18" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+      </symbol>
+      <symbol id="iconTemporalSettings" viewBox="0 0 24 24">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
+        <circle cx="12" cy="12" r="3" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"/>
       </symbol>
     `);
 
@@ -115,7 +152,7 @@ export default class SiyuanTemporalPlugin extends Plugin {
     if (!this.isMobile) {
       const statusTemplate = document.createElement("template");
       statusTemplate.innerHTML = `<div class="toolbar__item ariaLabel" aria-label="Temporal Hub">
-        <svg><use xlink:href="#iconTemporal"></use></svg>
+        <svg style="fill:none;stroke:currentColor;stroke-width:2;"><use xlink:href="#iconTemporal"></use></svg>
       </div>`;
       const el = statusTemplate.content.firstElementChild as HTMLElement;
       el.addEventListener("click", () => this.openTemporalTab());
@@ -236,39 +273,39 @@ export default class SiyuanTemporalPlugin extends Plugin {
   private showQuickMenu(rect?: DOMRect) {
     const menu = new Menu("temporalQuickMenu");
     menu.addItem({
-      icon: "iconTemporal",
+      icon: "iconTemporalAlarm",
       label: "Clock & Alarms",
       click: () => this.openTemporalTab("clock", "alarms"),
     });
     menu.addItem({
-      icon: "iconTemporal",
+      icon: "iconTemporalTimer",
       label: "Countdown Timers",
       click: () => this.openTemporalTab("clock", "timer"),
     });
     menu.addItem({
-      icon: "iconTemporal",
+      icon: "iconTemporalStopwatch",
       label: "Stopwatch",
       click: () => this.openTemporalTab("clock", "stopwatch"),
     });
     menu.addItem({
-      icon: "iconTemporal",
+      icon: "iconTemporalGlobe",
       label: "World Clock",
       click: () => this.openTemporalTab("clock", "worldclock"),
     });
     menu.addSeparator();
     menu.addItem({
-      icon: "iconBell",
+      icon: "iconTemporalBell",
       label: "Custom Reminders",
       click: () => this.openTemporalTab("reminders"),
     });
     menu.addItem({
-      icon: "iconCalendar",
+      icon: "iconTemporalCalendar",
       label: "Calendar & Google Sync",
       click: () => this.openTemporalTab("calendar"),
     });
     menu.addSeparator();
     menu.addItem({
-      icon: "iconSettings",
+      icon: "iconTemporalSettings",
       label: "Temporal Settings",
       click: () => this.openTemporalTab("settings"),
     });

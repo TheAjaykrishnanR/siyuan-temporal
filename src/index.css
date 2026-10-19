@@ -174,10 +174,36 @@
   cursor: not-allowed;
 }
 
+/* Ensure Lucide icons always render with clean strokes and never get filled by SiYuan's native theme or .protyle styles */
 .temporal-hub-root svg {
   display: block;
   vertical-align: middle;
   flex-shrink: 0;
+  fill: none !important;
+  stroke: currentColor !important;
+}
+
+.temporal-hub-root svg:not([fill="currentColor"]):not(.fill-current) path,
+.temporal-hub-root svg:not([fill="currentColor"]):not(.fill-current) circle:not([fill="currentColor"]):not(.fill-current),
+.temporal-hub-root svg:not([fill="currentColor"]):not(.fill-current) line,
+.temporal-hub-root svg:not([fill="currentColor"]):not(.fill-current) polyline,
+.temporal-hub-root svg:not([fill="currentColor"]):not(.fill-current) polygon,
+.temporal-hub-root svg:not([fill="currentColor"]):not(.fill-current) rect {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: inherit;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Also ensure SiYuan toolbar and menu icons for Temporal use Lucide stroke styling */
+.toolbar__item svg:has(use[xlink*="iconTemporal"]),
+.b3-menu__icon:has(use[xlink*="iconTemporal"]),
+.b3-list-item__icon:has(use[xlink*="iconTemporal"]),
+.layout-tab-bar svg:has(use[xlink*="iconTemporal"]) {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2px !important;
 }
 
 .temporal-hub-root table {

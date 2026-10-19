@@ -126,7 +126,7 @@ export const TemporalHubApp: React.FC<TemporalHubAppProps> = ({
           </Tabs>
 
           {/* Right Live Clock */}
-          <div className="hidden xl:flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             {runningTimers.length > 0 && (
               <Button
                 variant="outline"
@@ -143,7 +143,7 @@ export const TemporalHubApp: React.FC<TemporalHubAppProps> = ({
               <div className="text-sm font-semibold leading-none">
                 {format(
                   now,
-                  state.settings.use24HourFormat ? "HH:mm:ss" : "hh:mm:ss a"
+                  state.settings.use24HourFormat ? "HH:mm" : "hh:mm a"
                 )}
               </div>
               <div className="text-[11px] text-muted-foreground mt-1 font-sans">

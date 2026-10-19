@@ -331,30 +331,19 @@ export const ClockSuiteView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Current Local Time Hero Card */}
+      {/* Daily Overview & Status Card */}
       <Card>
-        <CardContent className="p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {Intl.DateTimeFormat().resolvedOptions().timeZone}
-              </p>
-              <div className="flex items-baseline gap-2 font-mono">
-                <span className="text-4xl sm:text-5xl font-bold tracking-tight">
-                  {format(
-                    now,
-                    state.settings.use24HourFormat ? "HH:mm:ss" : "hh:mm:ss"
-                  )}
-                </span>
-                {!state.settings.use24HourFormat && (
-                  <span className="text-lg font-medium text-muted-foreground">
-                    {format(now, "aa")}
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+              <span className="font-medium text-foreground">
                 {format(now, "EEEE, MMMM d, yyyy")}
-              </p>
+              </span>
+              <span className="opacity-40">&bull;</span>
+              <span className="text-xs font-mono">
+                {Intl.DateTimeFormat().resolvedOptions().timeZone}
+              </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -943,7 +932,6 @@ export const ClockSuiteView: React.FC = () => {
                   timeZone: wc.timezone,
                   hour: "2-digit",
                   minute: "2-digit",
-                  second: "2-digit",
                   hour12: !state.settings.use24HourFormat,
                 }).format(now);
                 dateStr = new Intl.DateTimeFormat("en-US", {
@@ -959,7 +947,10 @@ export const ClockSuiteView: React.FC = () => {
                 }).format(now);
                 hour24 = Number(hStr);
               } catch {
-                timeStr = format(now, "HH:mm:ss");
+                timeStr = format(
+                  now,
+                  state.settings.use24HourFormat ? "HH:mm" : "hh:mm a"
+                );
                 dateStr = format(now, "EEE, MMM d");
               }
               const isDaytime = hour24 >= 6 && hour24 < 18;
