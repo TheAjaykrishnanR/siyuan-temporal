@@ -148,7 +148,10 @@ export function cleanHtmlDescription(html?: string): string | undefined {
   return text.trim() || undefined;
 }
 
-function parseIcsDate(rawVal: string, params: string): { iso: string; allDay: boolean } {
+function parseIcsDate(
+  rawVal: string,
+  params: string = ""
+): { iso: string; allDay: boolean; timeMs: number } {
   const clean = rawVal.trim();
   const isDateOnly =
     params.toUpperCase().includes("VALUE=DATE") || /^\d{8}$/.test(clean);
@@ -157,9 +160,11 @@ function parseIcsDate(rawVal: string, params: string): { iso: string; allDay: bo
     const y = clean.slice(0, 4);
     const m = clean.slice(4, 6);
     const d = clean.slice(6, 8);
+    const dt = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0);
     return {
-      iso: new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0).toISOString(),
+      iso: dt.toISOString(),
       allDay: true,
+      timeMs: dt.getTime(),
     };
   }
 
@@ -170,58 +175,96 @@ function parseIcsDate(rawVal: string, params: string): { iso: string; allDay: bo
   if (match) {
     const [, y, m, d, hh, mm, ss, z] = match;
     if (z === "Z") {
+      const dt = new Date(
+        Date.UTC(
+          Number(y),
+          Number(m) - 1,
+          Number(d),
+          Number(hh),
+          Number(mm),
+          Number(ss)
+        )
+      );
       return {
-        iso: new Date(
-          Date.UTC(
-            Number(y),
-            Number(m) - 1,
-            Number(d),
-            Number(hh),
-            Number(mm),
-            Number(ss)
-          )
-        ).toISOString(),
+        iso: dt.toISOString(),
         allDay: false,
+        timeMs: dt.getTime(),
       };
     }
+    const dt = new Date(
+      Number(y),
+      Number(m) - 1,
+      Number(d),
+      Number(hh),
+      Number(mm),
+      Number(ss)
+    );
     return {
-      iso: new Date(
-        Number(y),
-        Number(m) - 1,
-        Number(d),
-        Number(hh),
-        Number(mm),
-        Number(ss)
-      ).toISOString(),
+      iso: dt.toISOString(),
       allDay: false,
+      timeMs: dt.getTime(),
     };
   }
 
   const parsed = new Date(clean);
+  const t = parsed.getTime();
   return {
-    iso: isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString(),
+    iso: isNaN(t) ? new Date().toISOString() : parsed.toISOString(),
     allDay: false,
+    timeMs: isNaN(t) ? Date.now() : t,
   };
+}
+
+interface RawIcsBlock {
+  uid: string;
+  recurrenceIdMs: number | null;
+  exdatesMs: number[];
+  sequence: number;
+  status: "confirmed" | "tentative" | "cancelled";
+  summary: string;
+  description: string;
+  location: string;
+  startISO: string;
+  startTimeMs: number;
+  endISO: string;
+  allDay: boolean;
+  rrule: string;
+  conferenceLink: string;
+  organizer?: { displayName?: string; email?: string };
+  attendees: EventAttendee[];
+  attachments: EventAttachment[];
+  transparency?: "opaque" | "transparent";
+  visibility?: "default" | "public" | "private" | "confidential";
+  createdISO?: string;
+  updatedISO?: string;
 }
 
 /**
  * Parses an iCal (.ics) feed string into CalendarEventItem[]
- * Supports standard VEVENT fields and basic RRULE expansion (DAILY, WEEKLY, MONTHLY, YEARLY).
+ * Fully conforms to RFC 5545 recurrence semantics:
+ * - Accurately applies RECURRENCE-ID exceptions (modified/rescheduled instances override master)
+ * - Excludes cancelled occurrences via EXDATE and STATUS:CANCELLED
+ * - Expands master RRULE occurrences without creating duplicates of overridden/cancelled instances
+ * - Assigns unique, deterministic IDs per occurrence
  */
 export function parseIcsFeed(
   rawIcs: string,
   account: GoogleCalendarAccount
 ): CalendarEventItem[] {
   const lines = unfoldIcsLines(rawIcs);
-  const events: CalendarEventItem[] = [];
+  const rawBlocks: RawIcsBlock[] = [];
 
   let inEvent = false;
   let uid = "";
+  let recurrenceIdMs: number | null = null;
+  let exdatesMs: number[] = [];
+  let sequence = 0;
   let summary = "";
   let description = "";
   let location = "";
   let status: "confirmed" | "tentative" | "cancelled" = "confirmed";
   let startISO = "";
+  let startTimeMs = 0;
   let endISO = "";
   let allDay = false;
   let rrule = "";
@@ -234,19 +277,20 @@ export function parseIcsFeed(
   let createdISO: string | undefined = undefined;
   let updatedISO: string | undefined = undefined;
 
-  const windowStart = subMonths(new Date(), 3);
-  const windowEnd = addMonths(new Date(), 6);
-
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed === "BEGIN:VEVENT") {
       inEvent = true;
       uid = "";
+      recurrenceIdMs = null;
+      exdatesMs = [];
+      sequence = 0;
       summary = "";
       description = "";
       location = "";
       status = "confirmed";
       startISO = "";
+      startTimeMs = 0;
       endISO = "";
       allDay = false;
       rrule = "";
@@ -262,78 +306,34 @@ export function parseIcsFeed(
     }
 
     if (trimmed === "END:VEVENT") {
-      if (inEvent && startISO && status !== "cancelled") {
+      if (inEvent && startISO) {
         const finalEndISO =
           endISO ||
-          new Date(new Date(startISO).getTime() + 3600 * 1000).toISOString();
+          new Date(startTimeMs + 3600 * 1000).toISOString();
 
-        const meetLink =
-          conferenceLink ||
-          extractMeetingLink(location, description);
-
-        const cleanedDesc = cleanHtmlDescription(description);
-
-        const baseEvent: CalendarEventItem = {
-          id: `gcal_ics_${account.id}_${uid || generateId("ev")}`,
-          title: summary || "(No Title)",
-          description: cleanedDesc,
-          location: location || undefined,
+        rawBlocks.push({
+          uid: uid || generateId("ev"),
+          recurrenceIdMs,
+          exdatesMs,
+          sequence,
+          summary,
+          description,
+          location,
+          status,
           startISO,
+          startTimeMs,
           endISO: finalEndISO,
           allDay,
-          color: account.color || "#3b82f6",
-          source: "google",
-          calendarId: account.id,
-          calendarName: account.name,
-          meetLink: meetLink || undefined,
-          status,
+          rrule,
+          conferenceLink,
           organizer,
-          attendees: attendees.length > 0 ? attendees : undefined,
-          attachments: attachments.length > 0 ? attachments : undefined,
+          attendees,
+          attachments,
           transparency,
           visibility,
           createdISO,
           updatedISO,
-          rruleText: rrule || undefined,
-        };
-
-        events.push(baseEvent);
-
-        // Expand simple RRULE occurrences within [windowStart, windowEnd]
-        if (rrule) {
-          const freqMatch = rrule.match(/FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)/i);
-          const countMatch = rrule.match(/COUNT=(\d+)/i);
-          const untilMatch = rrule.match(/UNTIL=([0-9TZ]+)/i);
-
-          if (freqMatch) {
-            const freq = freqMatch[1].toUpperCase();
-            const maxCount = countMatch ? Math.min(Number(countMatch[1]), 90) : 60;
-            const untilDate = untilMatch
-              ? new Date(parseIcsDate(untilMatch[1], "").iso)
-              : windowEnd;
-            const durationMs =
-              new Date(finalEndISO).getTime() - new Date(startISO).getTime();
-
-            let curStart = new Date(startISO);
-            for (let i = 1; i < maxCount; i++) {
-              if (freq === "DAILY") curStart = addDays(curStart, 1);
-              else if (freq === "WEEKLY") curStart = addWeeks(curStart, 1);
-              else if (freq === "MONTHLY") curStart = addMonths(curStart, 1);
-              else if (freq === "YEARLY") curStart = addYears(curStart, 1);
-
-              if (curStart > untilDate || curStart > windowEnd) break;
-              if (curStart < windowStart) continue;
-
-              const curEnd = new Date(curStart.getTime() + durationMs);
-              events.push({
-                ...baseEvent,
-                id: `${baseEvent.id}_r${i}`,
-                startISO: curStart.toISOString(),
-                endISO: curEnd.toISOString(),
-              });
-            }
-          }
-        }
+        });
       }
       inEvent = false;
       continue;
@@ -354,6 +354,24 @@ export function parseIcsFeed(
       case "UID":
         uid = val.trim();
         break;
+      case "RECURRENCE-ID": {
+        const parsed = parseIcsDate(val, params);
+        recurrenceIdMs = parsed.timeMs;
+        break;
+      }
+      case "EXDATE": {
+        const parts = val.split(",");
+        for (const pt of parts) {
+          const parsed = parseIcsDate(pt, params);
+          if (parsed.timeMs) {
+            exdatesMs.push(parsed.timeMs);
+          }
+        }
+        break;
+      }
+      case "SEQUENCE":
+        sequence = parseInt(val.trim(), 10) || 0;
+        break;
       case "SUMMARY":
         summary = unescapeIcsText(val);
         break;
@@ -370,6 +388,7 @@ export function parseIcsFeed(
       case "DTSTART": {
         const parsed = parseIcsDate(val, params);
         startISO = parsed.iso;
+        startTimeMs = parsed.timeMs;
         allDay = parsed.allDay;
         break;
       }
@@ -455,7 +474,165 @@ export function parseIcsFeed(
     }
   }
 
-  return events;
+  // Group raw blocks by UID
+  const byUid = new Map<string, RawIcsBlock[]>();
+  for (const block of rawBlocks) {
+    const list = byUid.get(block.uid) || [];
+    list.push(block);
+    byUid.set(block.uid, list);
+  }
+
+  const windowStart = subMonths(new Date(), 3);
+  const windowEnd = addMonths(new Date(), 6);
+  const events: CalendarEventItem[] = [];
+
+  for (const [uid, group] of byUid.entries()) {
+    // Collect all EXDATE exclusions and RECURRENCE-ID overrides across all blocks of this event
+    const exdateSet = new Set<number>();
+    const overriddenSet = new Set<number>();
+
+    for (const block of group) {
+      for (const exMs of block.exdatesMs) {
+        exdateSet.add(exMs);
+      }
+      if (block.recurrenceIdMs !== null) {
+        overriddenSet.add(block.recurrenceIdMs);
+      }
+    }
+
+    const masters = group.filter((b) => b.recurrenceIdMs === null);
+    const exceptions = group.filter((b) => b.recurrenceIdMs !== null);
+
+    // 1. Process exception occurrences (these represent modified/rescheduled instances in Google Calendar)
+    for (const exc of exceptions) {
+      if (exc.status === "cancelled") continue;
+
+      const meetLink =
+        exc.conferenceLink ||
+        extractMeetingLink(exc.location, exc.description);
+      const cleanedDesc = cleanHtmlDescription(exc.description);
+
+      events.push({
+        id: `gcal_ics_${account.id}_${uid}_${exc.startTimeMs}`,
+        title: exc.summary || "(No Title)",
+        description: cleanedDesc,
+        location: exc.location || undefined,
+        startISO: exc.startISO,
+        endISO: exc.endISO,
+        allDay: exc.allDay,
+        color: account.color || "#3b82f6",
+        source: "google",
+        calendarId: account.id,
+        calendarName: account.name,
+        meetLink: meetLink || undefined,
+        status: exc.status,
+        organizer: exc.organizer,
+        attendees: exc.attendees.length > 0 ? exc.attendees : undefined,
+        attachments: exc.attachments.length > 0 ? exc.attachments : undefined,
+        transparency: exc.transparency,
+        visibility: exc.visibility,
+        createdISO: exc.createdISO,
+        updatedISO: exc.updatedISO,
+        rruleText: exc.rrule || undefined,
+      });
+    }
+
+    // 2. Process master occurrence & expand RRULE
+    for (const m of masters) {
+      if (m.status === "cancelled") continue;
+
+      const meetLink =
+        m.conferenceLink ||
+        extractMeetingLink(m.location, m.description);
+      const cleanedDesc = cleanHtmlDescription(m.description);
+
+      const baseItem: CalendarEventItem = {
+        id: `gcal_ics_${account.id}_${uid}_${m.startTimeMs}`,
+        title: m.summary || "(No Title)",
+        description: cleanedDesc,
+        location: m.location || undefined,
+        startISO: m.startISO,
+        endISO: m.endISO,
+        allDay: m.allDay,
+        color: account.color || "#3b82f6",
+        source: "google",
+        calendarId: account.id,
+        calendarName: account.name,
+        meetLink: meetLink || undefined,
+        status: m.status,
+        organizer: m.organizer,
+        attendees: m.attendees.length > 0 ? m.attendees : undefined,
+        attachments: m.attachments.length > 0 ? m.attachments : undefined,
+        transparency: m.transparency,
+        visibility: m.visibility,
+        createdISO: m.createdISO,
+        updatedISO: m.updatedISO,
+        rruleText: m.rrule || undefined,
+      };
+
+      // Output base occurrence if not cancelled in EXDATE and not replaced by an exception
+      if (!exdateSet.has(m.startTimeMs) && !overriddenSet.has(m.startTimeMs)) {
+        events.push(baseItem);
+      }
+
+      // Expand RRULE occurrences if present
+      if (m.rrule) {
+        const freqMatch = m.rrule.match(/FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)/i);
+        const countMatch = m.rrule.match(/COUNT=(\d+)/i);
+        const untilMatch = m.rrule.match(/UNTIL=([0-9TZ]+)/i);
+
+        if (freqMatch) {
+          const freq = freqMatch[1].toUpperCase();
+          const maxCount = countMatch ? Math.min(Number(countMatch[1]), 90) : 60;
+          const untilMs = untilMatch
+            ? parseIcsDate(untilMatch[1], "").timeMs
+            : windowEnd.getTime();
+          const durationMs =
+            new Date(m.endISO).getTime() - new Date(m.startISO).getTime();
+
+          let curStart = new Date(m.startTimeMs);
+          for (let i = 1; i < maxCount; i++) {
+            if (freq === "DAILY") curStart = addDays(curStart, 1);
+            else if (freq === "WEEKLY") curStart = addWeeks(curStart, 1);
+            else if (freq === "MONTHLY") curStart = addMonths(curStart, 1);
+            else if (freq === "YEARLY") curStart = addYears(curStart, 1);
+            else break;
+
+            const t = curStart.getTime();
+            if (t > untilMs || t > windowEnd.getTime()) break;
+            if (t < windowStart.getTime()) continue;
+
+            // Skip occurrences that were cancelled via EXDATE or replaced via RECURRENCE-ID
+            if (exdateSet.has(t) || overriddenSet.has(t)) continue;
+
+            const curEnd = new Date(t + durationMs);
+            events.push({
+              ...baseItem,
+              id: `gcal_ics_${account.id}_${uid}_${t}`,
+              startISO: curStart.toISOString(),
+              endISO: curEnd.toISOString(),
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Deduplicate before returning
+  const seenIds = new Set<string>();
+  const seenTimes = new Set<string>();
+  const deduped: CalendarEventItem[] = [];
+
+  for (const ev of events) {
+    const timeKey = `${ev.calendarId}_${(ev.title || "").trim().toLowerCase()}_${ev.startISO}`;
+    if (!seenIds.has(ev.id) && !seenTimes.has(timeKey)) {
+      seenIds.add(ev.id);
+      seenTimes.add(timeKey);
+      deduped.push(ev);
+    }
+  }
+
+  return deduped;
 }
 
 /**

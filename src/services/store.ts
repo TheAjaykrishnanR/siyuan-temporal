@@ -283,6 +283,17 @@ class TemporalStoreManager {
           }
           return t;
         });
+
+        // Deduplicate googleEvents on init
+        if (Array.isArray(this.state.googleEvents)) {
+          const seen = new Set<string>();
+          this.state.googleEvents = this.state.googleEvents.filter((e) => {
+            const key = `${e.calendarId || ""}|${(e.title || "").trim().toLowerCase()}|${e.startISO}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
       }
     } catch (e) {
       console.warn("[SiYuan Temporal] Failed to load saved store, using defaults:", e);
@@ -422,6 +433,17 @@ class TemporalStoreManager {
             ...(saved.stopwatch || {}),
           },
         };
+
+        if (Array.isArray(this.state.googleEvents)) {
+          const seen = new Set<string>();
+          this.state.googleEvents = this.state.googleEvents.filter((e) => {
+            const key = `${e.calendarId || ""}|${(e.title || "").trim().toLowerCase()}|${e.startISO}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
+
         this.notify();
       }
     } catch {
@@ -1366,11 +1388,30 @@ class TemporalStoreManager {
       }
     }
 
-    return [
+    const combined = [
       ...this.state.localEvents,
       ...activeGoogleEvents,
       ...reminderEvents,
-    ].sort(
+    ];
+
+    const seenEventKeys = new Set<string>();
+    const deduped: CalendarEventItem[] = [];
+
+    for (const item of combined) {
+      const primaryKey = item.id;
+      const normalizedTitle = (item.title || "").trim().toLowerCase();
+      const startMs = new Date(item.startISO).getTime();
+      const compositeKey = `${normalizedTitle}|${isNaN(startMs) ? item.startISO : Math.floor(startMs / 60000)}`;
+
+      if (seenEventKeys.has(primaryKey) || seenEventKeys.has(compositeKey)) {
+        continue;
+      }
+      seenEventKeys.add(primaryKey);
+      seenEventKeys.add(compositeKey);
+      deduped.push(item);
+    }
+
+    return deduped.sort(
       (a, b) => new Date(a.startISO).getTime() - new Date(b.startISO).getTime()
     );
   }
@@ -1421,7 +1462,17 @@ class TemporalStoreManager {
       const otherEvents = this.state.googleEvents.filter(
         (e) => e.calendarId !== accountId
       );
-      this.state.googleEvents = [...otherEvents, ...fetched];
+      const combined = [...otherEvents, ...fetched];
+      const seen = new Set<string>();
+      const cleanEvents: CalendarEventItem[] = [];
+      for (const e of combined) {
+        const key = `${e.calendarId || ""}|${(e.title || "").trim().toLowerCase()}|${e.startISO}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          cleanEvents.push(e);
+        }
+      }
+      this.state.googleEvents = cleanEvents;
       this.state.googleAccounts = this.state.googleAccounts.map((a) =>
         a.id === accountId
           ? {
@@ -1496,7 +1547,17 @@ class TemporalStoreManager {
       }
     }
 
-    this.state.googleEvents = accumulatedEvents;
+    const seen = new Set<string>();
+    const cleanEvents: CalendarEventItem[] = [];
+    for (const e of accumulatedEvents) {
+      const key = `${e.calendarId || ""}|${(e.title || "").trim().toLowerCase()}|${e.startISO}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        cleanEvents.push(e);
+      }
+    }
+
+    this.state.googleEvents = cleanEvents;
     this.isSyncingGoogle = false;
     this.schedulePersist();
     this.notify();
