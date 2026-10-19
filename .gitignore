@@ -5,8 +5,8 @@ node_modules/
 # Build outputs
 dist/
 package.zip
-index.js
-index.css
+/index.js
+/index.css
 
 # References & Sample Projects
 petal/
