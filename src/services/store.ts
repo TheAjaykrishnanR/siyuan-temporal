@@ -1426,6 +1426,7 @@ class TemporalStoreManager {
         a.id === accountId
           ? {
               ...a,
+              accessToken: account.accessToken || a.accessToken,
               lastSyncedAt: new Date().toISOString(),
               lastSyncError: undefined,
             }

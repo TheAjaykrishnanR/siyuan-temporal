@@ -70,7 +70,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 
 const DAY_LABELS: { day: DayOfWeek; short: string; full: string }[] = [
@@ -875,7 +874,7 @@ export const ClockSuiteView: React.FC = () => {
                     No laps recorded yet.
                   </div>
                 ) : (
-                  <ScrollArea className="h-64">
+                  <div className="overflow-y-auto max-h-64 pr-1 focus:outline-none">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -913,7 +912,7 @@ export const ClockSuiteView: React.FC = () => {
                         })}
                       </TableBody>
                     </Table>
-                  </ScrollArea>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -1008,7 +1007,7 @@ export const ClockSuiteView: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 flex-1 overflow-y-auto min-h-0 pr-1">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Time</Label>
@@ -1178,7 +1177,7 @@ export const ClockSuiteView: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 flex-1 overflow-y-auto min-h-0 pr-1">
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-2">
                 <Label>Hours</Label>
@@ -1291,7 +1290,7 @@ export const ClockSuiteView: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 flex-1 overflow-y-auto min-h-0 pr-1">
             <div className="space-y-2">
               <Label>City</Label>
               <Select

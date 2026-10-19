@@ -608,7 +608,7 @@ export const RemindersView: React.FC<RemindersViewProps> = ({ siyuanApp }) => {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 flex-1 overflow-y-auto min-h-0 pr-1">
             <div className="space-y-2">
               <Label>Title</Label>
               <Input

@@ -5,7 +5,13 @@ import {
   addYears,
   subMonths,
 } from "date-fns";
-import { CalendarEventItem, GoogleCalendarAccount } from "@/types/temporal";
+import {
+  CalendarEventItem,
+  EventAttachment,
+  EventAttendee,
+  EventConferenceDetails,
+  GoogleCalendarAccount,
+} from "@/types/temporal";
 import { generateId } from "@/lib/utils";
 
 /**
@@ -79,6 +85,67 @@ function unescapeIcsText(val: string): string {
     .replace(/\\,/g, ",")
     .replace(/\\;/g, ";")
     .replace(/\\\\/g, "\\");
+}
+
+/**
+ * Extracts a Google Meet, Zoom, Teams, or Webex video meeting link from given text strings.
+ */
+export function extractMeetingLink(
+  ...sources: (string | undefined | null)[]
+): string | undefined {
+  for (const src of sources) {
+    if (!src) continue;
+    // 1. Google Meet: https://meet.google.com/xxx-yyyy-zzz or similar
+    const meetMatch = src.match(/https?:\/\/meet\.google\.com\/[a-z0-9-]+/i);
+    if (meetMatch) return meetMatch[0];
+
+    // 2. Zoom: https://*.zoom.us/j/... or /my/...
+    const zoomMatch = src.match(
+      /https?:\/\/[a-zA-Z0-9.-]+\.zoom\.us\/(?:j\/[0-9]+|my\/[a-zA-Z0-9._-]+)[^\s"<>]*/i
+    );
+    if (zoomMatch) return zoomMatch[0];
+
+    // 3. Microsoft Teams
+    const teamsMatch = src.match(
+      /https?:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^\s"<>]*/i
+    );
+    if (teamsMatch) return teamsMatch[0];
+
+    // 4. Cisco Webex
+    const webexMatch = src.match(
+      /https?:\/\/[a-zA-Z0-9.-]+\.webex\.com\/[^\s"<>]*/i
+    );
+    if (webexMatch) return webexMatch[0];
+  }
+  return undefined;
+}
+
+/**
+ * Converts HTML-formatted event descriptions (as returned by Google Calendar API)
+ * into clean markdown text that can be formatted and linked safely.
+ */
+export function cleanHtmlDescription(html?: string): string | undefined {
+  if (!html) return undefined;
+  if (!/<[a-z][\s\S]*>/i.test(html)) {
+    return html.trim() || undefined;
+  }
+  let text = html
+    .replace(/<br\s*[\/]?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<p[^>]*>/gi, "")
+    .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi, "[$2]($1)")
+    .replace(/<b>(.*?)<\/b>/gi, "**$1**")
+    .replace(/<strong>(.*?)<\/strong>/gi, "**$1**")
+    .replace(/<i>(.*?)<\/i>/gi, "*$1*")
+    .replace(/<em>(.*?)<\/em>/gi, "*$1*")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/<[^>]+>/g, ""); // strip unknown tags
+  return text.trim() || undefined;
 }
 
 function parseIcsDate(rawVal: string, params: string): { iso: string; allDay: boolean } {
@@ -158,6 +225,14 @@ export function parseIcsFeed(
   let endISO = "";
   let allDay = false;
   let rrule = "";
+  let conferenceLink = "";
+  let organizer: { displayName?: string; email?: string } | undefined = undefined;
+  let attendees: EventAttendee[] = [];
+  let attachments: EventAttachment[] = [];
+  let transparency: "opaque" | "transparent" | undefined = undefined;
+  let visibility: "default" | "public" | "private" | "confidential" | undefined = undefined;
+  let createdISO: string | undefined = undefined;
+  let updatedISO: string | undefined = undefined;
 
   const windowStart = subMonths(new Date(), 3);
   const windowEnd = addMonths(new Date(), 6);
@@ -175,6 +250,14 @@ export function parseIcsFeed(
       endISO = "";
       allDay = false;
       rrule = "";
+      conferenceLink = "";
+      organizer = undefined;
+      attendees = [];
+      attachments = [];
+      transparency = undefined;
+      visibility = undefined;
+      createdISO = undefined;
+      updatedISO = undefined;
       continue;
     }
 
@@ -184,10 +267,16 @@ export function parseIcsFeed(
           endISO ||
           new Date(new Date(startISO).getTime() + 3600 * 1000).toISOString();
 
+        const meetLink =
+          conferenceLink ||
+          extractMeetingLink(location, description);
+
+        const cleanedDesc = cleanHtmlDescription(description);
+
         const baseEvent: CalendarEventItem = {
           id: `gcal_ics_${account.id}_${uid || generateId("ev")}`,
           title: summary || "(No Title)",
-          description: description || undefined,
+          description: cleanedDesc,
           location: location || undefined,
           startISO,
           endISO: finalEndISO,
@@ -196,7 +285,16 @@ export function parseIcsFeed(
           source: "google",
           calendarId: account.id,
           calendarName: account.name,
+          meetLink: meetLink || undefined,
           status,
+          organizer,
+          attendees: attendees.length > 0 ? attendees : undefined,
+          attachments: attachments.length > 0 ? attachments : undefined,
+          transparency,
+          visibility,
+          createdISO,
+          updatedISO,
+          rruleText: rrule || undefined,
         };
 
         events.push(baseEvent);
@@ -283,6 +381,77 @@ export function parseIcsFeed(
       case "RRULE":
         rrule = val.trim();
         break;
+      case "X-GOOGLE-CONFERENCE":
+        conferenceLink = val.trim();
+        break;
+      case "URL":
+        if (
+          val.includes("meet.google.com") ||
+          val.includes("zoom.us") ||
+          val.includes("teams.microsoft.com")
+        ) {
+          conferenceLink = val.trim();
+        }
+        break;
+      case "ORGANIZER": {
+        const cnMatch = params.match(/CN=([^;]+)/i);
+        const email = val.replace(/^mailto:/i, "").trim();
+        organizer = {
+          displayName: cnMatch ? cnMatch[1].replace(/^["']|["']$/g, "") : undefined,
+          email: email || undefined,
+        };
+        break;
+      }
+      case "ATTENDEE": {
+        const cnMatch = params.match(/CN=([^;]+)/i);
+        const partStatMatch = params.match(/PARTSTAT=(ACCEPTED|DECLINED|TENTATIVE|NEEDS-ACTION)/i);
+        const email = val.replace(/^mailto:/i, "").trim();
+        let responseStatus: "accepted" | "declined" | "tentative" | "needsAction" = "needsAction";
+        if (partStatMatch) {
+          const ps = partStatMatch[1].toUpperCase();
+          if (ps === "ACCEPTED") responseStatus = "accepted";
+          else if (ps === "DECLINED") responseStatus = "declined";
+          else if (ps === "TENTATIVE") responseStatus = "tentative";
+        }
+        attendees.push({
+          displayName: cnMatch ? cnMatch[1].replace(/^["']|["']$/g, "") : undefined,
+          email,
+          responseStatus,
+        });
+        break;
+      }
+      case "ATTACH": {
+        const url = val.trim();
+        if (url.startsWith("http")) {
+          const parts = url.split("/");
+          const title = decodeURIComponent(parts[parts.length - 1].split("?")[0]) || "Attachment";
+          attachments.push({
+            title,
+            fileUrl: url,
+          });
+        }
+        break;
+      }
+      case "TRANSP":
+        transparency = val.toUpperCase().includes("TRANSPARENT") ? "transparent" : "opaque";
+        break;
+      case "CLASS": {
+        const c = val.toUpperCase();
+        if (c.includes("PRIVATE")) visibility = "private";
+        else if (c.includes("CONFIDENTIAL")) visibility = "confidential";
+        else visibility = "public";
+        break;
+      }
+      case "CREATED": {
+        const parsed = parseIcsDate(val, params);
+        createdISO = parsed.iso;
+        break;
+      }
+      case "LAST-MODIFIED": {
+        const parsed = parseIcsDate(val, params);
+        updatedISO = parsed.iso;
+        break;
+      }
     }
   }
 
@@ -290,9 +459,69 @@ export function parseIcsFeed(
 }
 
 /**
+ * Refreshes the Google OAuth 2.0 access token using the stored refresh_token,
+ * clientId, and clientSecret.
+ */
+export async function refreshGoogleAccessToken(
+  account: GoogleCalendarAccount
+): Promise<string> {
+  const refreshToken = account.refreshToken?.trim();
+  const clientId = account.clientId?.trim();
+  const clientSecret = account.clientSecret?.trim();
+
+  if (!refreshToken || !clientId || !clientSecret) {
+    throw new Error(
+      "Automatic token refresh requires Refresh Token, Client ID, and Client Secret."
+    );
+  }
+
+  const payload = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  }).toString();
+
+  const { status, body } = await siyuanFetchText(
+    "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: payload,
+    }
+  );
+
+  if (status < 200 || status >= 300) {
+    let errMsg = `HTTP ${status}`;
+    try {
+      const errJson = JSON.parse(body);
+      if (errJson?.error_description) {
+        errMsg = errJson.error_description;
+      } else if (errJson?.error) {
+        errMsg = errJson.error;
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(`Failed to refresh Google token (${errMsg})`);
+  }
+
+  const data = JSON.parse(body);
+  if (!data.access_token) {
+    throw new Error("Google did not return an access_token");
+  }
+
+  account.accessToken = data.access_token;
+  return data.access_token;
+}
+
+/**
  * Fetches events from a Google Calendar account via:
  * - Mode "ical": Private iCal (.ics) feed URL
- * - Mode "oauth": Google Calendar API v3 with OAuth 2.0 Bearer Access Token
+ * - Mode "oauth": Google Calendar API v3 with OAuth 2.0 Bearer Access Token (with auto-refresh)
  * - Mode "apikey": Google Calendar API v3 with Calendar ID + API Key
  */
 export async function syncGoogleCalendarAccount(
@@ -318,7 +547,7 @@ export async function syncGoogleCalendarAccount(
   const timeMin = subMonths(new Date(), 2).toISOString();
   const timeMax = addMonths(new Date(), 6).toISOString();
 
-  let apiUrl = `https://www.googleapis.com/calendar/v3/calendars/${calId}/events?singleEvents=true&orderBy=startTime&maxResults=500&timeMin=${encodeURIComponent(
+  let apiUrl = `https://www.googleapis.com/calendar/v3/calendars/${calId}/events?singleEvents=true&orderBy=startTime&maxResults=500&conferenceDataVersion=1&timeMin=${encodeURIComponent(
     timeMin
   )}&timeMax=${encodeURIComponent(timeMax)}`;
 
@@ -327,9 +556,12 @@ export async function syncGoogleCalendarAccount(
   };
 
   if (account.mode === "oauth") {
-    const token = account.accessToken?.trim();
+    let token = account.accessToken?.trim();
+    if (!token && account.refreshToken?.trim()) {
+      token = await refreshGoogleAccessToken(account);
+    }
     if (!token) {
-      throw new Error("OAuth Access Token is required for OAuth mode");
+      throw new Error("OAuth Access Token or Refresh Token is required for OAuth mode");
     }
     headers["Authorization"] = `Bearer ${token}`;
   } else if (account.mode === "apikey") {
@@ -340,7 +572,27 @@ export async function syncGoogleCalendarAccount(
     apiUrl += `&key=${encodeURIComponent(key)}`;
   }
 
-  const { status, body } = await siyuanFetchText(apiUrl, { headers });
+  let { status, body } = await siyuanFetchText(apiUrl, { headers });
+
+  // If token expired (401) and we have refresh credentials, auto-refresh and retry once!
+  if (
+    status === 401 &&
+    account.mode === "oauth" &&
+    account.refreshToken?.trim() &&
+    account.clientId?.trim() &&
+    account.clientSecret?.trim()
+  ) {
+    try {
+      const freshToken = await refreshGoogleAccessToken(account);
+      headers["Authorization"] = `Bearer ${freshToken}`;
+      const retryRes = await siyuanFetchText(apiUrl, { headers });
+      status = retryRes.status;
+      body = retryRes.body;
+    } catch {
+      // Fall through to standard error handling
+    }
+  }
+
   if (status < 200 || status >= 300) {
     let errMsg = `Google Calendar API HTTP ${status}`;
     try {
@@ -371,10 +623,82 @@ export async function syncGoogleCalendarAccount(
         ? new Date(`${rawEnd}T23:59:59`)
         : new Date(rawEnd);
 
+      const conferenceUri = item.conferenceData?.entryPoints?.find(
+        (ep: any) =>
+          ep.entryPointType === "video" || ep.uri?.includes("meet.google.com")
+      )?.uri;
+      const meetLink =
+        item.hangoutLink ||
+        conferenceUri ||
+        extractMeetingLink(item.location, item.description);
+
+      const phoneEp = item.conferenceData?.entryPoints?.find(
+        (ep: any) => ep.entryPointType === "phone"
+      );
+      const videoEp = item.conferenceData?.entryPoints?.find(
+        (ep: any) =>
+          ep.entryPointType === "video" || ep.uri?.includes("meet.google.com")
+      );
+
+      const conferenceDetails: EventConferenceDetails | undefined =
+        item.conferenceData || meetLink
+          ? {
+              solutionName:
+                item.conferenceData?.conferenceSolution?.name ||
+                (meetLink?.includes("meet.google.com")
+                  ? "Google Meet"
+                  : meetLink?.includes("zoom.us")
+                  ? "Zoom"
+                  : meetLink?.includes("teams.microsoft.com")
+                  ? "Microsoft Teams"
+                  : undefined),
+              videoUri: videoEp?.uri || meetLink,
+              phoneUri: phoneEp?.uri || phoneEp?.label || undefined,
+              phonePin: phoneEp?.pin || undefined,
+              notes: item.conferenceData?.notes || undefined,
+            }
+          : undefined;
+
+      const organizer = item.organizer
+        ? {
+            displayName: item.organizer.displayName || undefined,
+            email: item.organizer.email || undefined,
+            self: item.organizer.self,
+          }
+        : undefined;
+
+      const creator = item.creator
+        ? {
+            displayName: item.creator.displayName || undefined,
+            email: item.creator.email || undefined,
+            self: item.creator.self,
+          }
+        : undefined;
+
+      const attendees: EventAttendee[] = Array.isArray(item.attendees)
+        ? item.attendees.map((att: any) => ({
+            displayName: att.displayName || undefined,
+            email: att.email || "",
+            responseStatus: att.responseStatus || "needsAction",
+            self: att.self,
+            organizer: att.organizer,
+            optional: att.optional,
+          }))
+        : [];
+
+      const attachments: EventAttachment[] = Array.isArray(item.attachments)
+        ? item.attachments.map((att: any) => ({
+            title: att.title || "Attachment",
+            fileUrl: att.fileUrl || att.url || "",
+            mimeType: att.mimeType || undefined,
+            iconLink: att.iconLink || undefined,
+          }))
+        : [];
+
       return {
         id: `gcal_api_${account.id}_${item.id}`,
         title: item.summary || "(No Title)",
-        description: item.description || undefined,
+        description: cleanHtmlDescription(item.description),
         location: item.location || undefined,
         startISO: isNaN(startDate.getTime())
           ? new Date().toISOString()
@@ -388,7 +712,18 @@ export async function syncGoogleCalendarAccount(
         calendarId: account.id,
         calendarName: account.name,
         htmlLink: item.htmlLink,
+        meetLink: meetLink || undefined,
         status: item.status || "confirmed",
+        organizer,
+        creator,
+        attendees: attendees.length > 0 ? attendees : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
+        conferenceDetails,
+        transparency: item.transparency || "opaque",
+        visibility: item.visibility || "default",
+        createdISO: item.created || undefined,
+        updatedISO: item.updated || undefined,
+        rruleText: Array.isArray(item.recurrence) ? item.recurrence.join("; ") : undefined,
       };
     });
 }
@@ -407,8 +742,16 @@ export async function createGoogleCalendarEventRemote(
     allDay: boolean;
   }
 ): Promise<CalendarEventItem> {
-  if (account.mode !== "oauth" || !account.accessToken?.trim()) {
-    throw new Error("Creating Google Calendar events requires an OAuth Access Token");
+  if (account.mode !== "oauth") {
+    throw new Error("Creating Google Calendar events requires OAuth mode");
+  }
+
+  let token = account.accessToken?.trim();
+  if (!token && account.refreshToken?.trim()) {
+    token = await refreshGoogleAccessToken(account);
+  }
+  if (!token) {
+    throw new Error("Creating Google Calendar events requires an OAuth Access Token or Refresh Token");
   }
 
   const calId = encodeURIComponent(account.calendarId?.trim() || "primary");
@@ -426,14 +769,37 @@ export async function createGoogleCalendarEventRemote(
       : { dateTime: new Date(event.endISO).toISOString() },
   };
 
-  const { status, body } = await siyuanFetchText(url, {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+
+  let { status, body } = await siyuanFetchText(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${account.accessToken.trim()}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(payload),
   });
+
+  if (
+    status === 401 &&
+    account.refreshToken?.trim() &&
+    account.clientId?.trim() &&
+    account.clientSecret?.trim()
+  ) {
+    try {
+      token = await refreshGoogleAccessToken(account);
+      headers["Authorization"] = `Bearer ${token}`;
+      const retryRes = await siyuanFetchText(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+      status = retryRes.status;
+      body = retryRes.body;
+    } catch {
+      // Fall through
+    }
+  }
 
   if (status < 200 || status >= 300) {
     let errMsg = `Failed to create Google Calendar event (HTTP ${status})`;
@@ -460,6 +826,7 @@ export async function createGoogleCalendarEventRemote(
     calendarId: account.id,
     calendarName: account.name,
     htmlLink: item.htmlLink,
+    meetLink: item.hangoutLink || undefined,
     status: "confirmed",
   };
 }

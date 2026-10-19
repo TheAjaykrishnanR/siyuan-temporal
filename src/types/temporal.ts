@@ -85,6 +85,30 @@ export interface CustomReminder {
 
 export type CalendarEventSource = "local" | "google" | "reminder";
 
+export interface EventAttendee {
+  displayName?: string;
+  email: string;
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  self?: boolean;
+  organizer?: boolean;
+  optional?: boolean;
+}
+
+export interface EventAttachment {
+  title: string;
+  fileUrl: string;
+  mimeType?: string;
+  iconLink?: string;
+}
+
+export interface EventConferenceDetails {
+  solutionName?: string;
+  videoUri?: string;
+  phoneUri?: string;
+  phonePin?: string;
+  notes?: string;
+}
+
 export interface CalendarEventItem {
   id: string;
   title: string;
@@ -98,12 +122,33 @@ export interface CalendarEventItem {
   calendarId?: string;
   calendarName?: string;
   htmlLink?: string;
+  meetLink?: string;
   status?: "confirmed" | "tentative" | "cancelled";
   reminderId?: string;
   completed?: boolean;
   recurrence?: ReminderRecurrence;
   priority?: ReminderPriority;
   lastNotifiedISO?: string;
+
+  // Rich metadata attached to the event
+  organizer?: {
+    displayName?: string;
+    email?: string;
+    self?: boolean;
+  };
+  creator?: {
+    displayName?: string;
+    email?: string;
+    self?: boolean;
+  };
+  attendees?: EventAttendee[];
+  attachments?: EventAttachment[];
+  conferenceDetails?: EventConferenceDetails;
+  transparency?: "opaque" | "transparent"; // "opaque" = Busy, "transparent" = Free
+  visibility?: "default" | "public" | "private" | "confidential";
+  createdISO?: string;
+  updatedISO?: string;
+  rruleText?: string;
 }
 
 export type GoogleIntegrationMode = "ical" | "oauth" | "apikey";
@@ -116,7 +161,9 @@ export interface GoogleCalendarAccount {
   calendarId?: string; // e.g. "primary" or "user@gmail.com"
   apiKey?: string;
   accessToken?: string;
+  refreshToken?: string;
   clientId?: string;
+  clientSecret?: string;
   color: string;
   enabled: boolean;
   lastSyncedAt?: string;
