@@ -80,10 +80,13 @@ function unfoldIcsLines(rawIcs: string): string[] {
 }
 
 function unescapeIcsText(val: string): string {
+  if (!val) return "";
   return val
     .replace(/\\n/gi, "\n")
     .replace(/\\,/g, ",")
     .replace(/\\;/g, ";")
+    .replace(/\\:/g, ":")
+    .replace(/\\"/g, '"')
     .replace(/\\\\/g, "\\");
 }
 
@@ -153,7 +156,7 @@ export function cleanHtmlDescription(html?: string): string | undefined {
  */
 export function isGoogleDriveUrl(url?: string): boolean {
   if (!url) return false;
-  return /https?:\/\/(?:drive|docs)\.google\.com\//i.test(url);
+  return /https?(?::|\\:)\/\/(?:drive|docs)\.google\.com\//i.test(url);
 }
 
 /**
@@ -182,7 +185,8 @@ export function cleanAttachmentTitle(
 
   // Try extracting meaningful filename from URL path if possible
   try {
-    const parsed = new URL(url);
+    const cleanUrl = url.replace(/\\:/g, ":");
+    const parsed = new URL(cleanUrl);
     const pathParts = parsed.pathname.split("/").filter(Boolean);
     const lastPart = pathParts[pathParts.length - 1];
     if (lastPart && !["view", "open", "preview", "edit"].includes(lastPart.toLowerCase())) {
@@ -207,12 +211,15 @@ export function cleanAttachmentTitle(
 /**
  * Determines whether a given attachment, URL, or metadata indicates a meeting recording.
  */
-export function isRecordingAttachment(att: {
-  title?: string;
-  fileUrl?: string;
-  mimeType?: string;
-  isRecording?: boolean;
-}): boolean {
+export function isRecordingAttachment(
+  att: {
+    title?: string;
+    fileUrl?: string;
+    mimeType?: string;
+    isRecording?: boolean;
+  },
+  context?: { hasMeetLink?: boolean }
+): boolean {
   if (att.isRecording) return true;
 
   const mime = (att.mimeType || "").toLowerCase();
@@ -240,7 +247,8 @@ export function isRecordingAttachment(att: {
   if (
     /\b(recording|recordings|recorded|replay|meeting\s+recording|meet\s+recording|call\s+recording)\b/i.test(
       title
-    )
+    ) ||
+    /\b(recording|recordings|recorded|replay|meet\s+recording)\b/i.test(url)
   ) {
     return true;
   }
@@ -257,6 +265,16 @@ export function isRecordingAttachment(att: {
     return true;
   }
 
+  // If this attachment is on a Google Meeting event and points to a Google Drive file
+  if (context?.hasMeetLink && isGoogleDriveUrl(att.fileUrl)) {
+    if (
+      !url.includes("docs.google.com/spreadsheets") &&
+      !url.includes("docs.google.com/presentation")
+    ) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -269,15 +287,17 @@ export function extractDriveAttachmentsFromText(
 ): EventAttachment[] {
   if (!text) return [];
 
+  const cleanText = unescapeIcsText(text);
   const found: EventAttachment[] = [];
   const seenUrls = new Set<string>();
 
   const addAttachment = (
-    url: string,
+    rawUrl: string,
     rawTitle?: string,
     forceRecording?: boolean
   ) => {
-    const cleanUrl = url.trim().replace(/[.,;:)>\]]+$/, "");
+    let cleanUrl = unescapeIcsText(rawUrl).trim();
+    cleanUrl = cleanUrl.replace(/^[<"'\s\(\[]+|[>"'\s\)\].,;:]+$/g, "");
     if (!cleanUrl || !isGoogleDriveUrl(cleanUrl)) return;
 
     // Normalize URL key to avoid duplicate entries for the same Drive file
@@ -288,16 +308,20 @@ export function extractDriveAttachmentsFromText(
     let title = cleanAttachmentTitle(rawTitle, cleanUrl);
     const isRec = Boolean(
       forceRecording ||
-        isRecordingAttachment({ title, fileUrl: cleanUrl }) ||
+        isRecordingAttachment(
+          { title, fileUrl: cleanUrl },
+          { hasMeetLink: eventContext?.hasMeetLink }
+        ) ||
         (rawTitle &&
           /\b(recording|recorded|replay|watch\s+recording|meet\s+recording|call\s+recording|video)\b/i.test(
             rawTitle
-          ))
+          )) ||
+        eventContext?.hasMeetLink
     );
 
     if (
       isRec &&
-      (title === "Google Drive File" || title === "Attachment")
+      (title === "Google Drive File" || title === "Attachment" || !title)
     ) {
       title = eventContext?.defaultTitlePrefix
         ? `${eventContext.defaultTitlePrefix} - Recording`
@@ -314,9 +338,9 @@ export function extractDriveAttachmentsFromText(
 
   // 1. Markdown links: [Title](https://drive.google.com/...)
   const mdRegex =
-    /\[([^\]]+)\]\((https?:\/\/(?:drive|docs)\.google\.com\/[^\s)]+)\)/gi;
+    /\[([^\]]+)\]\((https?(?::|\\:)\/\/(?:drive|docs)\.google\.com\/[^\s)]+)\)/gi;
   let mdMatch: RegExpExecArray | null;
-  while ((mdMatch = mdRegex.exec(text)) !== null) {
+  while ((mdMatch = mdRegex.exec(cleanText)) !== null) {
     const label = mdMatch[1].trim();
     const url = mdMatch[2].trim();
     const isRec =
@@ -328,9 +352,9 @@ export function extractDriveAttachmentsFromText(
 
   // 2. HTML links: <a href="https://drive.google.com/...">Title</a>
   const htmlRegex =
-    /<a\s+[^>]*href=["'](https?:\/\/(?:drive|docs)\.google\.com\/[^"']+)["'][^>]*>(.*?)<\/a>/gi;
+    /<a\s+[^>]*href=["'](https?(?::|\\:)\/\/(?:drive|docs)\.google\.com\/[^"']+)["'][^>]*>(.*?)<\/a>/gi;
   let htmlMatch: RegExpExecArray | null;
-  while ((htmlMatch = htmlRegex.exec(text)) !== null) {
+  while ((htmlMatch = htmlRegex.exec(cleanText)) !== null) {
     const url = htmlMatch[1].trim();
     const rawLabel = htmlMatch[2].replace(/<[^>]+>/g, "").trim();
     const isRec =
@@ -342,31 +366,30 @@ export function extractDriveAttachmentsFromText(
 
   // 3. Common plain-text labeled patterns like:
   // "View recording: https://drive.google.com/..."
-  // "Meeting recording: https://drive.google.com/..."
+  // "Meeting recording: <https://drive.google.com/...>"
   // "Recording: https://drive.google.com/..."
   const labeledRegex =
-    /(?:view\s+recording|meeting\s+recording|call\s+recording|video\s+recording|watch\s+recording|recording|replay)[\s:\-–—]+(https?:\/\/(?:drive|docs)\.google\.com\/[^\s<>"'\)]+)/gi;
+    /(?:view\s+recording|meeting\s+recording|call\s+recording|video\s+recording|watch\s+recording|recording|replay)[\s:\-–—\(\[<]+(https?(?::|\\:)\/\/(?:drive|docs)\.google\.com\/[^\s<>"'\)\]]+)/gi;
   let labeledMatch: RegExpExecArray | null;
-  while ((labeledMatch = labeledRegex.exec(text)) !== null) {
+  while ((labeledMatch = labeledRegex.exec(cleanText)) !== null) {
     addAttachment(labeledMatch[1], "Google Meet Recording", true);
   }
 
   // 4. Raw Google Drive file or folder links in plain text
   const rawDriveRegex =
-    /(https?:\/\/drive\.google\.com\/(?:file\/d\/[a-zA-Z0-9_-]+|open\?[a-zA-Z0-9_=&-]+|drive\/folders\/[a-zA-Z0-9_-]+)[^\s<>"'\)]*)/gi;
+    /(https?(?::|\\:)\/\/(?:drive|docs)\.google\.com\/(?:file\/d\/[a-zA-Z0-9_-]+|open\?[a-zA-Z0-9_=&-]+|drive\/folders\/[a-zA-Z0-9_-]+|document\/d\/[a-zA-Z0-9_-]+)[^\s<>"'\)\]]*)/gi;
   let rawMatch: RegExpExecArray | null;
-  while ((rawMatch = rawDriveRegex.exec(text)) !== null) {
+  while ((rawMatch = rawDriveRegex.exec(cleanText)) !== null) {
     const url = rawMatch[1];
-    // Check if surrounding line mentions recording
-    const lineIndex = text.lastIndexOf("\n", rawMatch.index);
-    const endLineIndex = text.indexOf("\n", rawMatch.index);
-    const lineText = text.slice(
-      lineIndex === -1 ? 0 : lineIndex,
-      endLineIndex === -1 ? text.length : endLineIndex
-    );
-    const isLineRec =
-      /\b(recording|recorded|replay|video|meet)\b/i.test(lineText);
-    addAttachment(url, undefined, isLineRec);
+    const windowStart = Math.max(0, rawMatch.index - 150);
+    const windowEnd = Math.min(cleanText.length, rawMatch.index + 200);
+    const contextWindow = cleanText.slice(windowStart, windowEnd);
+    const isNearbyRec =
+      /\b(recording|recorded|replay|video|meet|call|session|watch)\b/i.test(
+        contextWindow
+      );
+    const isRec = Boolean(isNearbyRec || eventContext?.hasMeetLink);
+    addAttachment(url, undefined, isRec);
   }
 
   return found;
@@ -374,7 +397,7 @@ export function extractDriveAttachmentsFromText(
 
 /**
  * Returns all recordings associated with an event, checking explicit recordings[],
- * attachments[], descriptions, and conference notes.
+ * attachments[], descriptions, locations, and conference notes.
  */
 export function getEventRecordings(
   event?: CalendarEventItem | null
@@ -383,6 +406,11 @@ export function getEventRecordings(
 
   const recordings: EventAttachment[] = [];
   const seenUrls = new Set<string>();
+  const hasMeet = Boolean(
+    event.meetLink ||
+      event.conferenceDetails?.solutionName?.toLowerCase().includes("meet") ||
+      event.conferenceDetails?.videoUri
+  );
 
   const addRec = (rec: EventAttachment) => {
     const url = rec.fileUrl?.trim();
@@ -421,27 +449,60 @@ export function getEventRecordings(
   // 2. Check attachments array
   if (Array.isArray(event.attachments)) {
     for (const att of event.attachments) {
-      if (isRecordingAttachment(att)) {
+      if (isRecordingAttachment(att, { hasMeetLink: hasMeet })) {
         addRec(att);
       }
     }
   }
 
-  // 3. Check description and conference notes
+  // 3. Check description, location, and conference notes
   const textDriveLinks = [
     ...extractDriveAttachmentsFromText(event.description, {
-      hasMeetLink: Boolean(event.meetLink),
+      hasMeetLink: hasMeet,
+      defaultTitlePrefix: event.title,
+    }),
+    ...extractDriveAttachmentsFromText(event.location, {
+      hasMeetLink: hasMeet,
       defaultTitlePrefix: event.title,
     }),
     ...extractDriveAttachmentsFromText(event.conferenceDetails?.notes, {
-      hasMeetLink: Boolean(event.meetLink),
+      hasMeetLink: hasMeet,
       defaultTitlePrefix: event.title,
     }),
   ];
 
   for (const link of textDriveLinks) {
-    if (link.isRecording || isRecordingAttachment(link)) {
+    if (
+      link.isRecording ||
+      isRecordingAttachment(link, { hasMeetLink: hasMeet })
+    ) {
       addRec(link);
+    }
+  }
+
+  // 4. Fallback for Google Meeting events:
+  // If the event has a Google Meeting (or video meeting), any attached Google Drive file link
+  // (drive.google.com/file/d/... or open?id=...) is a meeting recording!
+  if (hasMeet && recordings.length === 0) {
+    if (Array.isArray(event.attachments)) {
+      for (const att of event.attachments) {
+        if (
+          isGoogleDriveUrl(att.fileUrl) &&
+          !att.fileUrl.includes("docs.google.com/spreadsheets") &&
+          !att.fileUrl.includes("docs.google.com/presentation")
+        ) {
+          addRec(att);
+        }
+      }
+    }
+    for (const link of textDriveLinks) {
+      if (
+        isGoogleDriveUrl(link.fileUrl) &&
+        !link.fileUrl.includes("docs.google.com/spreadsheets") &&
+        !link.fileUrl.includes("docs.google.com/presentation")
+      ) {
+        addRec(link);
+      }
     }
   }
 
@@ -459,6 +520,10 @@ export function getAllEventAttachments(
 
   const combined: EventAttachment[] = [];
   const seenUrls = new Set<string>();
+  const hasMeet = Boolean(
+    event.meetLink ||
+      event.conferenceDetails?.solutionName?.toLowerCase().includes("meet")
+  );
 
   const add = (att: EventAttachment) => {
     const url = att.fileUrl?.trim();
@@ -467,7 +532,9 @@ export function getAllEventAttachments(
     if (seenUrls.has(urlKey)) return;
     seenUrls.add(urlKey);
 
-    const isRec = Boolean(att.isRecording || isRecordingAttachment(att));
+    const isRec = Boolean(
+      att.isRecording || isRecordingAttachment(att, { hasMeetLink: hasMeet })
+    );
     const title = cleanAttachmentTitle(
       att.title,
       url,
@@ -488,10 +555,20 @@ export function getAllEventAttachments(
     for (const r of event.recordings) add(r);
   }
 
-  const fromDesc = extractDriveAttachmentsFromText(event.description, {
-    hasMeetLink: Boolean(event.meetLink),
-    defaultTitlePrefix: event.title,
-  });
+  const fromDesc = [
+    ...extractDriveAttachmentsFromText(event.description, {
+      hasMeetLink: hasMeet,
+      defaultTitlePrefix: event.title,
+    }),
+    ...extractDriveAttachmentsFromText(event.location, {
+      hasMeetLink: hasMeet,
+      defaultTitlePrefix: event.title,
+    }),
+    ...extractDriveAttachmentsFromText(event.conferenceDetails?.notes, {
+      hasMeetLink: hasMeet,
+      defaultTitlePrefix: event.title,
+    }),
+  ];
   for (const d of fromDesc) add(d);
 
   return combined;
@@ -625,17 +702,22 @@ export function parseIcsFeed(
   let visibility: "default" | "public" | "private" | "confidential" | undefined = undefined;
   let createdISO: string | undefined = undefined;
   let updatedISO: string | undefined = undefined;
+  let rawBlockLines: string[] = [];
+  let altDesc = "";
+  let driveUrlsInBlock: string[] = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed === "BEGIN:VEVENT") {
       inEvent = true;
+      rawBlockLines = [];
       uid = "";
       recurrenceIdMs = null;
       exdatesMs = [];
       sequence = 0;
       summary = "";
       description = "";
+      altDesc = "";
       location = "";
       status = "confirmed";
       startISO = "";
@@ -647,6 +729,7 @@ export function parseIcsFeed(
       organizer = undefined;
       attendees = [];
       attachments = [];
+      driveUrlsInBlock = [];
       transparency = undefined;
       visibility = undefined;
       createdISO = undefined;
@@ -660,13 +743,67 @@ export function parseIcsFeed(
           endISO ||
           new Date(startTimeMs + 3600 * 1000).toISOString();
 
+        const fullBlockText = unescapeIcsText(rawBlockLines.join("\n"));
+        const meetLink =
+          conferenceLink ||
+          extractMeetingLink(
+            conferenceLink,
+            location,
+            description,
+            altDesc,
+            fullBlockText
+          );
+        const hasMeetLink = Boolean(meetLink);
+
+        // Gather all Drive links found from all sources in this block
+        const blockDriveLinks = [
+          ...driveUrlsInBlock.map((u) => ({
+            title: cleanAttachmentTitle(
+              undefined,
+              u,
+              hasMeetLink ? "Google Meet Recording" : "Attachment"
+            ),
+            fileUrl: u,
+            isRecording:
+              hasMeetLink ||
+              isRecordingAttachment({ fileUrl: u }, { hasMeetLink }),
+          })),
+          ...extractDriveAttachmentsFromText(description, {
+            hasMeetLink,
+            defaultTitlePrefix: summary,
+          }),
+          ...extractDriveAttachmentsFromText(altDesc, {
+            hasMeetLink,
+            defaultTitlePrefix: summary,
+          }),
+          ...extractDriveAttachmentsFromText(location, {
+            hasMeetLink,
+            defaultTitlePrefix: summary,
+          }),
+          ...extractDriveAttachmentsFromText(fullBlockText, {
+            hasMeetLink,
+            defaultTitlePrefix: summary,
+          }),
+        ];
+
+        const seenAttUrls = new Set(
+          attachments.map((a) => a.fileUrl.split("?")[0].toLowerCase())
+        );
+        for (const dl of blockDriveLinks) {
+          const k = dl.fileUrl.split("?")[0].toLowerCase();
+          if (!seenAttUrls.has(k)) {
+            seenAttUrls.add(k);
+            attachments.push(dl);
+          }
+        }
+
         rawBlocks.push({
           uid: uid || generateId("ev"),
           recurrenceIdMs,
           exdatesMs,
           sequence,
           summary,
-          description,
+          description: description || altDesc,
           location,
           status,
           startISO,
@@ -674,7 +811,7 @@ export function parseIcsFeed(
           endISO: finalEndISO,
           allDay,
           rrule,
-          conferenceLink,
+          conferenceLink: meetLink || conferenceLink,
           organizer,
           attendees,
           attachments,
@@ -689,6 +826,7 @@ export function parseIcsFeed(
     }
 
     if (!inEvent) continue;
+    rawBlockLines.push(line);
 
     const colonIdx = line.indexOf(":");
     if (colonIdx === -1) continue;
@@ -727,6 +865,9 @@ export function parseIcsFeed(
       case "DESCRIPTION":
         description = unescapeIcsText(val);
         break;
+      case "X-ALT-DESC":
+        altDesc = unescapeIcsText(val);
+        break;
       case "LOCATION":
         location = unescapeIcsText(val);
         break;
@@ -750,17 +891,23 @@ export function parseIcsFeed(
         rrule = val.trim();
         break;
       case "X-GOOGLE-CONFERENCE":
-        conferenceLink = val.trim();
+      case "CONFERENCE":
+        conferenceLink = unescapeIcsText(val).trim();
         break;
-      case "URL":
+      case "URL": {
+        const cleanUrl = unescapeIcsText(val).replace(/^[<"'\s]+|[>"'\s]+$/g, "");
         if (
-          val.includes("meet.google.com") ||
-          val.includes("zoom.us") ||
-          val.includes("teams.microsoft.com")
+          cleanUrl.includes("meet.google.com") ||
+          cleanUrl.includes("zoom.us") ||
+          cleanUrl.includes("teams.microsoft.com") ||
+          cleanUrl.includes("webex.com")
         ) {
-          conferenceLink = val.trim();
+          conferenceLink = cleanUrl;
+        } else if (isGoogleDriveUrl(cleanUrl)) {
+          driveUrlsInBlock.push(cleanUrl);
         }
         break;
+      }
       case "ORGANIZER": {
         const cnMatch = params.match(/CN=([^;]+)/i);
         const email = val.replace(/^mailto:/i, "").trim();
@@ -789,20 +936,33 @@ export function parseIcsFeed(
         break;
       }
       case "ATTACH": {
-        const url = val.trim();
-        if (url.startsWith("http")) {
+        const unescapedVal = unescapeIcsText(val).trim();
+        const cleanUrl = unescapedVal.replace(/^[<"'\s]+|[>"'\s]+$/g, "");
+        if (cleanUrl.startsWith("http")) {
           const fnMatch = params.match(/(?:FILENAME|X-FILENAME)=["']?([^"';]+)["']?/i);
           const mimeMatch = params.match(/FMTTYPE=([^;]+)/i);
           const rawTitle = fnMatch ? fnMatch[1].trim() : undefined;
           const mimeType = mimeMatch ? mimeMatch[1].trim() : undefined;
-          const title = cleanAttachmentTitle(rawTitle, url, "Attachment");
-          const isRec = isRecordingAttachment({ title, fileUrl: url, mimeType });
+          const title = cleanAttachmentTitle(rawTitle, cleanUrl, "Attachment");
+          const isRec = isRecordingAttachment(
+            { title, fileUrl: cleanUrl, mimeType },
+            { hasMeetLink: Boolean(conferenceLink) }
+          );
           attachments.push({
             title,
-            fileUrl: url,
+            fileUrl: cleanUrl,
             mimeType,
             isRecording: isRec,
           });
+        }
+        break;
+      }
+      default: {
+        if (upperProp.includes("ATTACH") || upperProp.includes("RECORDING")) {
+          const cleanUrl = unescapeIcsText(val).replace(/^[<"'\s]+|[>"'\s]+$/g, "");
+          if (isGoogleDriveUrl(cleanUrl)) {
+            driveUrlsInBlock.push(cleanUrl);
+          }
         }
         break;
       }
@@ -867,8 +1027,9 @@ export function parseIcsFeed(
         extractMeetingLink(exc.location, exc.description);
       const cleanedDesc = cleanHtmlDescription(exc.description);
 
+      const hasMeet = Boolean(meetLink);
       const descDriveLinks = extractDriveAttachmentsFromText(exc.description, {
-        hasMeetLink: Boolean(meetLink),
+        hasMeetLink: hasMeet,
         defaultTitlePrefix: exc.summary,
       });
       const combinedAttachments = [...exc.attachments];
@@ -882,9 +1043,22 @@ export function parseIcsFeed(
           combinedAttachments.push(dl);
         }
       }
-      const recs = combinedAttachments.filter(
-        (a) => a.isRecording || isRecordingAttachment(a)
+      let recs = combinedAttachments.filter(
+        (a) => a.isRecording || isRecordingAttachment(a, { hasMeetLink: hasMeet })
       );
+      if (recs.length === 0 && hasMeet) {
+        for (const att of combinedAttachments) {
+          if (isGoogleDriveUrl(att.fileUrl)) {
+            att.isRecording = true;
+            if (!att.title || att.title === "Attachment") {
+              att.title = cleanAttachmentTitle(att.title, att.fileUrl, "Google Meet Recording");
+            }
+            if (!recs.some((r) => r.fileUrl === att.fileUrl)) {
+              recs.push(att);
+            }
+          }
+        }
+      }
 
       events.push({
         id: `gcal_ics_${account.id}_${uid}_${exc.startTimeMs}`,
@@ -922,8 +1096,9 @@ export function parseIcsFeed(
         extractMeetingLink(m.location, m.description);
       const cleanedDesc = cleanHtmlDescription(m.description);
 
+      const hasMeet = Boolean(meetLink);
       const descDriveLinks = extractDriveAttachmentsFromText(m.description, {
-        hasMeetLink: Boolean(meetLink),
+        hasMeetLink: hasMeet,
         defaultTitlePrefix: m.summary,
       });
       const combinedAttachments = [...m.attachments];
@@ -937,9 +1112,22 @@ export function parseIcsFeed(
           combinedAttachments.push(dl);
         }
       }
-      const recs = combinedAttachments.filter(
-        (a) => a.isRecording || isRecordingAttachment(a)
+      let recs = combinedAttachments.filter(
+        (a) => a.isRecording || isRecordingAttachment(a, { hasMeetLink: hasMeet })
       );
+      if (recs.length === 0 && hasMeet) {
+        for (const att of combinedAttachments) {
+          if (isGoogleDriveUrl(att.fileUrl)) {
+            att.isRecording = true;
+            if (!att.title || att.title === "Attachment") {
+              att.title = cleanAttachmentTitle(att.title, att.fileUrl, "Google Meet Recording");
+            }
+            if (!recs.some((r) => r.fileUrl === att.fileUrl)) {
+              recs.push(att);
+            }
+          }
+        }
+      }
 
       const baseItem: CalendarEventItem = {
         id: `gcal_ics_${account.id}_${uid}_${m.startTimeMs}`,
