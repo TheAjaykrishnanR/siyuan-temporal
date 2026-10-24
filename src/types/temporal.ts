@@ -99,6 +99,7 @@ export interface EventAttachment {
   fileUrl: string;
   mimeType?: string;
   iconLink?: string;
+  isRecording?: boolean;
 }
 
 export interface EventConferenceDetails {
@@ -143,6 +144,7 @@ export interface CalendarEventItem {
   };
   attendees?: EventAttendee[];
   attachments?: EventAttachment[];
+  recordings?: EventAttachment[];
   conferenceDetails?: EventConferenceDetails;
   transparency?: "opaque" | "transparent"; // "opaque" = Busy, "transparent" = Free
   visibility?: "default" | "public" | "private" | "confidential";

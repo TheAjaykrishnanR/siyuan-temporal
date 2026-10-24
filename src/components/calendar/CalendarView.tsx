@@ -32,6 +32,8 @@ import {
   Copy,
   ExternalLink,
   FileText,
+  FileVideo,
+  Film,
   HelpCircle,
   Info,
   KeyRound,
@@ -43,6 +45,7 @@ import {
   Paperclip,
   Pencil,
   Phone,
+  Play,
   Plus,
   RefreshCw,
   Repeat,
@@ -66,6 +69,11 @@ import {
   ReminderPriority,
   ReminderRecurrence,
 } from "@/types/temporal";
+import {
+  getEventRecordings,
+  getAllEventAttachments,
+  isRecordingAttachment,
+} from "@/services/googleCalendar";
 import { useTemporalStore } from "@/services/store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -770,6 +778,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
                             {ev.meetLink && (
                               <Video className="h-3 w-3 shrink-0 opacity-95" />
                             )}
+                            {getEventRecordings(ev).length > 0 && (
+                              <span title="Google Meeting Recording attached (Google Drive)">
+                                <Play className="h-2.5 w-2.5 fill-current text-red-300 dark:text-red-400 shrink-0" />
+                              </span>
+                            )}
                             {!ev.allDay && (
                               <span className="opacity-90 font-mono text-[10px] shrink-0">
                                 {format(new Date(ev.startISO), "HH:mm")}
@@ -872,6 +885,23 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
                                   <span>Join Meeting</span>
                                 </a>
                               )}
+                              {(() => {
+                                const recs = getEventRecordings(ev);
+                                if (recs.length === 0) return null;
+                                return (
+                                  <a
+                                    href={recs[0].fileUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[10px] font-semibold truncate mt-0.5 flex items-center gap-1 text-red-200 hover:underline"
+                                    title={`Watch Google Meeting Recording: ${recs[0].title}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Play className="h-2.5 w-2.5 fill-current shrink-0" />
+                                    <span>Recording</span>
+                                  </a>
+                                );
+                              })()}
                             </div>
                           ))
                         )}
@@ -1022,6 +1052,29 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
                                   </a>
                                 </Button>
                               )}
+                              {(() => {
+                                const recs = getEventRecordings(ev);
+                                if (recs.length === 0) return null;
+                                return (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs gap-1 font-semibold text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-600 hover:text-white"
+                                    title={`Watch Google Meeting Recording: ${recs[0].title}`}
+                                    asChild
+                                  >
+                                    <a
+                                      href={recs[0].fileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Play className="h-3 w-3 fill-current" />
+                                      Recording
+                                    </a>
+                                  </Button>
+                                );
+                              })()}
                               {ev.htmlLink && (
                                 <Button
                                   variant="ghost"
@@ -1309,33 +1362,127 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
                           </div>
                         )}
 
-                        {/* Attachments & Files if present */}
-                        {ev.attachments && ev.attachments.length > 0 && (
-                          <div className="pt-0.5 space-y-1 min-w-0 max-w-full">
-                            <div className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
-                              <Paperclip className="h-3 w-3 text-primary shrink-0" />
-                              <span>Attachments ({ev.attachments.length})</span>
-                            </div>
-                            <div className="flex flex-col gap-1 min-w-0 max-w-full">
-                              {ev.attachments.map((att, idx) => (
-                                <a
-                                  key={idx}
-                                  href={att.fileUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="flex items-center justify-between gap-2 p-1.5 rounded-md bg-muted/40 hover:bg-muted text-xs transition-colors group min-w-0 max-w-full overflow-hidden"
-                                  onClick={(e) => e.stopPropagation()}
+                        {/* Meeting Recording Callout if present */}
+                        {(() => {
+                          const dayRecs = getEventRecordings(ev);
+                          if (dayRecs.length === 0) return null;
+                          return (
+                            <div className="pt-0.5 space-y-1 min-w-0 max-w-full">
+                              {dayRecs.map((rec, rIdx) => (
+                                <div
+                                  key={rIdx}
+                                  className="flex items-center justify-between gap-2 p-2 rounded-lg bg-red-500/10 hover:bg-red-500/15 border border-red-500/30 text-xs text-foreground transition-all group min-w-0 max-w-full overflow-hidden"
                                 >
-                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                    <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
-                                    <span className="truncate font-medium flex-1">{att.title}</span>
+                                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <div className="h-6 w-6 rounded-md bg-red-600 text-white flex items-center justify-center shrink-0">
+                                      <Play className="h-3 w-3 fill-current" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="font-semibold text-red-700 dark:text-red-300 leading-tight truncate flex items-center gap-1.5">
+                                        <span className="truncate">{rec.title}</span>
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] px-1 py-0 h-4 bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20 shrink-0"
+                                        >
+                                          Google Drive
+                                        </Badge>
+                                      </div>
+                                      <div className="text-[10px] text-muted-foreground font-mono truncate">
+                                        {rec.fileUrl}
+                                      </div>
+                                    </div>
                                   </div>
-                                  <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-foreground shrink-0 ml-1" />
-                                </a>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigator.clipboard.writeText(rec.fileUrl);
+                                        showMessage("Recording link copied");
+                                      }}
+                                      title="Copy Recording Link"
+                                    >
+                                      <Copy className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      className="h-6 px-2 text-[11px] gap-1 font-semibold bg-red-600 hover:bg-red-700 text-white shadow-xs"
+                                      asChild
+                                    >
+                                      <a
+                                        href={rec.fileUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <Play className="h-2.5 w-2.5 fill-current" />
+                                        Watch
+                                        <ExternalLink className="h-2.5 w-2.5 ml-0.5 opacity-80" />
+                                      </a>
+                                    </Button>
+                                  </div>
+                                </div>
                               ))}
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
+
+                        {/* Attachments & Files if present */}
+                        {(() => {
+                          const dayAtts = getAllEventAttachments(ev);
+                          if (dayAtts.length === 0) return null;
+                          return (
+                            <div className="pt-0.5 space-y-1 min-w-0 max-w-full">
+                              <div className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+                                <Paperclip className="h-3 w-3 text-primary shrink-0" />
+                                <span>Attachments ({dayAtts.length})</span>
+                              </div>
+                              <div className="flex flex-col gap-1 min-w-0 max-w-full">
+                                {dayAtts.map((att, idx) => {
+                                  const isRec = Boolean(
+                                    att.isRecording || isRecordingAttachment(att)
+                                  );
+                                  return (
+                                    <a
+                                      key={idx}
+                                      href={att.fileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className={cn(
+                                        "flex items-center justify-between gap-2 p-1.5 rounded-md bg-muted/40 hover:bg-muted text-xs transition-colors group min-w-0 max-w-full overflow-hidden",
+                                        isRec &&
+                                          "bg-red-500/10 hover:bg-red-500/15 border border-red-500/20"
+                                      )}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                        {isRec ? (
+                                          <Play className="h-3.5 w-3.5 text-red-600 dark:text-red-400 fill-current shrink-0" />
+                                        ) : (
+                                          <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
+                                        )}
+                                        <span className="truncate font-medium flex-1">
+                                          {att.title}
+                                        </span>
+                                        {isRec && (
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[9px] px-1 py-0 h-3.5 bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20 shrink-0"
+                                          >
+                                            Recording
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-foreground shrink-0 ml-1" />
+                                    </a>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {/* Organizer / Host if present */}
                         {ev.organizer && (
@@ -2450,45 +2597,175 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
                   </div>
                 )}
 
-                {/* 2. Attachments & Course Materials */}
-                {detailsEvent.attachments && detailsEvent.attachments.length > 0 && (
-                  <div className="space-y-2 p-3.5 rounded-xl border bg-muted/30">
-                    <div className="text-xs font-semibold text-foreground flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Paperclip className="h-4 w-4 text-primary" />
-                        Attached Files &amp; Resources ({detailsEvent.attachments.length})
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                      {detailsEvent.attachments.map((att, idx) => (
-                        <a
-                          key={idx}
-                          href={att.fileUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center justify-between gap-2 p-2.5 rounded-lg border bg-card hover:bg-accent/60 transition-colors group"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                              <FileText className="h-4 w-4" />
+                {/* Google Meeting Recordings */}
+                {(() => {
+                  const recs = getEventRecordings(detailsEvent);
+                  if (recs.length === 0) return null;
+                  return (
+                    <div className="p-3.5 rounded-xl border border-red-500/30 bg-red-500/5 dark:bg-red-500/10 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="h-9 w-9 rounded-lg bg-red-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                            <Film className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className="font-semibold text-sm text-foreground flex items-center gap-2">
+                              <span>
+                                Google Meeting Recording
+                                {recs.length > 1 ? "s" : ""}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 font-medium"
+                              >
+                                Google Drive
+                              </Badge>
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-xs font-medium truncate group-hover:text-primary transition-colors">
-                                {att.title}
-                              </div>
-                              {att.mimeType && (
-                                <div className="text-[10px] text-muted-foreground truncate font-mono">
-                                  {att.mimeType.split("/").pop()}
-                                </div>
-                              )}
+                            <div className="text-xs text-muted-foreground">
+                              {recs.length} recording file
+                              {recs.length > 1 ? "s" : ""} attached on Google Drive
                             </div>
                           </div>
-                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground shrink-0" />
-                        </a>
-                      ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        {recs.map((rec, rIdx) => (
+                          <div
+                            key={rIdx}
+                            className="p-3 rounded-lg border bg-card hover:bg-accent/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="h-8 w-8 rounded-md bg-red-500/15 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+                                <Play className="h-4 w-4 fill-current" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div
+                                  className="text-xs font-semibold text-foreground truncate"
+                                  title={rec.title}
+                                >
+                                  {rec.title}
+                                </div>
+                                <div
+                                  className="text-[11px] text-muted-foreground font-mono truncate"
+                                  title={rec.fileUrl}
+                                >
+                                  {rec.fileUrl}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2.5 text-xs gap-1"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(rec.fileUrl);
+                                  showMessage(
+                                    "Recording link copied to clipboard"
+                                  );
+                                }}
+                                title="Copy recording URL"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                <span>Copy</span>
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-8 px-3 text-xs gap-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold shadow-xs"
+                                asChild
+                              >
+                                <a
+                                  href={rec.fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <Play className="h-3.5 w-3.5 fill-current" />
+                                  <span>Watch on Drive</span>
+                                  <ExternalLink className="h-3 w-3 ml-0.5" />
+                                </a>
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
+
+                {/* 2. Attachments & Course Materials */}
+                {(() => {
+                  const allAtts = getAllEventAttachments(detailsEvent);
+                  if (allAtts.length === 0) return null;
+                  return (
+                    <div className="space-y-2 p-3.5 rounded-xl border bg-muted/30">
+                      <div className="text-xs font-semibold text-foreground flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <Paperclip className="h-4 w-4 text-primary" />
+                          Attached Files &amp; Resources ({allAtts.length})
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {allAtts.map((att, idx) => {
+                          const isRec = Boolean(
+                            att.isRecording || isRecordingAttachment(att)
+                          );
+                          return (
+                            <a
+                              key={idx}
+                              href={att.fileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={cn(
+                                "flex items-center justify-between gap-2 p-2.5 rounded-lg border bg-card hover:bg-accent/60 transition-colors group",
+                                isRec &&
+                                  "border-red-500/30 bg-red-500/5 hover:bg-red-500/10"
+                              )}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className={cn(
+                                    "h-8 w-8 rounded-md flex items-center justify-center shrink-0",
+                                    isRec
+                                      ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                                      : "bg-primary/10 text-primary"
+                                  )}
+                                >
+                                  {isRec ? (
+                                    <Play className="h-4 w-4 fill-current" />
+                                  ) : (
+                                    <FileText className="h-4 w-4" />
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-xs font-medium truncate group-hover:text-primary transition-colors flex items-center gap-1.5">
+                                    <span className="truncate">{att.title}</span>
+                                    {isRec && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[9px] px-1 py-0 h-4 bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20 shrink-0"
+                                      >
+                                        Recording
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground truncate font-mono">
+                                    {att.mimeType
+                                      ? att.mimeType.split("/").pop()
+                                      : isRec
+                                      ? "video"
+                                      : "file"}
+                                  </div>
+                                </div>
+                              </div>
+                              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground shrink-0" />
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 3. Location / Room */}
                 {detailsEvent.location && (
@@ -2762,6 +3039,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ siyuanApp }) => {
                     }
                     if (detailsEvent.meetLink) {
                       textLines.push(`Meeting Link: ${detailsEvent.meetLink}`);
+                    }
+                    const summaryRecs = getEventRecordings(detailsEvent);
+                    if (summaryRecs.length > 0) {
+                      textLines.push(`Google Meeting Recording(s):`);
+                      summaryRecs.forEach((r) => {
+                        textLines.push(`- ${r.title}: ${r.fileUrl}`);
+                      });
                     }
                     if (detailsEvent.organizer) {
                       textLines.push(
